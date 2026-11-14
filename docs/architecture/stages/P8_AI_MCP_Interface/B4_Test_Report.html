@@ -25,8 +25,8 @@ main{max-width:1320px;margin:auto;padding:38px 32px 80px}.hero{display:grid;grid
 <main id="overview">
 <section class="hero"><div><p class="eyebrow">B4 / AI MCP INTERFACE</p><h1>MCP工具测试台账</h1>
 <p><span class="overall">总体验收未通过</span>0.2.141 · 更新于 2026-11-14</p>
-<p>本页仅记录实际MCP工具使用。新增MCP1114：0.2.141 上 SSH 与 COM3 实机复测，观察/分页/精确重试/等待/释放/目录/传输主路径通过；宽字符折行、跨接口operationId复用、清空令牌、同名不覆盖上传四处异常，B4未整体验收。</p><p>仅收录模拟实际用户或Agent调用MCP工具的测试。代码级验证另见<a href="records/MCP_Engineering_Verification_2026-10-31.md">工程验证记录</a>。</p></div><aside class="priority"><div class="priority-top"><span>本轮 · 0.2.141 SSH/UART 复测</span><a href="#mcp-20261114-detail">查看问题 ↗</a></div><h2>主路径通过；四处异常待处理</h2><p>A14 宽字符折行多空格、S15 跨接口operationId复用被接受、C01 清空恒 CURSOR_STALE、SF03 同名上传发布未知。</p><div class="flow"><b>观察、分页与目录分页已核对</b><i></i><b>输入幂等、等待与释放已核对</b><i></i><span class="next">异常项与未执行项待复测</span></div></aside></section>
-<div class="stats" aria-label="按当前状态筛选"><button class="stat selected" data-state-filter=""><strong>87</strong><span>全部用例</span></button><button class="stat failed" data-state-filter="failed"><strong>4</strong><span>失败</span></button><button class="stat partial" data-state-filter="partial"><strong>47</strong><span>部分验证</span></button><button class="stat todo" data-state-filter="todo"><strong>36</strong><span>未执行</span></button></div>
+<p>本页仅记录实际MCP工具使用。新增MCP1114：0.2.141 上 SSH 与 COM3 实机复测，观察/分页/精确重试/等待/释放/目录/传输主路径通过；宽字符折行、跨接口operationId复用、清空令牌、同名不覆盖上传四处异常，B4未整体验收。MCP1114b 补充 V02 服务端畸形参数被拒、无凭据泄漏的服务端侧证据。</p><p>仅收录模拟实际用户或Agent调用MCP工具的测试。代码级验证另见<a href="records/MCP_Engineering_Verification_2026-10-31.md">工程验证记录</a>。</p></div><aside class="priority"><div class="priority-top"><span>本轮 · 0.2.141 SSH/UART 复测</span><a href="#mcp-20261114-detail">查看问题 ↗</a></div><h2>主路径通过；四处异常待处理</h2><p>A14 宽字符折行多空格、S15 跨接口operationId复用被接受、C01 清空恒 CURSOR_STALE、SF03 同名上传发布未知。</p><div class="flow"><b>观察、分页与目录分页已核对</b><i></i><b>输入幂等、等待与释放已核对</b><i></i><span class="next">异常项与未执行项待复测</span></div></aside></section>
+<div class="stats" aria-label="按当前状态筛选"><button class="stat selected" data-state-filter=""><strong>87</strong><span>全部用例</span></button><button class="stat failed" data-state-filter="failed"><strong>4</strong><span>失败</span></button><button class="stat partial" data-state-filter="partial"><strong>48</strong><span>部分验证</span></button><button class="stat todo" data-state-filter="todo"><strong>35</strong><span>未执行</span></button></div>
 <p class="count-note">以上按 87 条用例的MCP工具测试证据归类，不是子检查累计通过率；10 个退役编号另存历史记录。</p>
 <section class="checklist-section" id="checklist"><div class="section-head"><div><h2>测试清单</h2><p>先核对环境与范围，按顺序进入用例；每条操作、判据和当前结果在同一处。</p></div><a class="text-link" href="#cases">查看全部 87 条 ↗</a></div>
 <div class="checklist-flow" aria-label="建议执行顺序"><a href="#case-A01"><span>1</span>接入/只读</a><a href="#case-S01"><span>2</span>本机交互预验</a><a href="#case-U01"><span>3</span>独立SSH/UART</a><a href="#case-C01"><span>4</span>清空/权限</a><a href="#case-H01"><span>5</span>手动录制</a><a href="#case-X01"><span>6</span>上传确认与文件交付</a><a href="#case-B01"><span>7</span>经批准的重连/重启与双通道</a><a href="#case-P01"><span>8</span>客户端/平台/性能</a></div>
@@ -78,12 +78,12 @@ Windows/Linux安全Reader与Writer已实现，macOS Reader/Writer未实现，
 <div><h4>测试操作</h4><p>隔离实例关闭/启用MCP，两代2025/2026实际握手，读取tools/list；无令牌/伪令牌对照。</p><h4>通过判据</h4><p>启用后20工具名称及Schema一致，关闭不可接入，无/伪令牌401；记录客户端版本，列目录不代表各功能通过。</p></div>
 <div><h4>已验证到哪里</h4><p>MCP1114：2026-07-28 协商成功，20 工具注册并可调用，列表含 ttlMs/cacheScope；缺字段断连问题不再复现。</p><p class="scope">证据范围：本机</p><h4>还需要验证</h4><p>仍未在 GUI 内切换接入开关，也未做两代握手对照。</p></div>
 </div><div class="case-guidance"><span>清单参考</span><a href="#tool-list_sessions"><code>list_sessions</code></a><a href="#guide-3">本组前提 ↗</a><a href="#checklist-record">记录口径 ↗</a></div><div class="case-links"><a class="link-chip" href="#run-01">R01 执行记录 ↗</a><a class="link-chip" href="#run-02">R02 执行记录 ↗</a><a class="link-chip" href="#run-hdmi-rx-20261104">HDMI1104 执行记录 ↗</a><a class="link-chip" href="#run-mcp-20261114">MCP1114 执行记录 ↗</a><a class="link-chip quiet" href="#evidence-r01">R01 证据 ↗</a><a class="link-chip quiet" href="#evidence-r02">R02 证据 ↗</a><a class="link-chip quiet" href="#evidence-hdmi-rx-20261104">HDMI1104 证据 ↗</a><a class="link-chip quiet" href="#evidence-mcp-20261114">MCP1114 证据 ↗</a><a class="permalink" href="#case-A01" aria-label="A01固定链接">#A01</a></div></div></details>
-<details class="case" id="case-A02" data-case="A02" data-state="todo" data-family="A" data-runs="" data-search="a02 接入与观察 未执行 — a/b用同一统一令牌列会话；本机撤销某会话读取/输入，刷新两端，再恢复明确选项。 两连接共享同一授权视图；撤读取级联输入/提权/清空；同绑定刷新不恢复撤权，错误不泄露凭据。 尚无此用例完整执行证据。 按清单执行正向、负向与恢复判据，并取得对应环境证据。">
+<details class="case" id="case-A02" data-case="A02" data-state="todo" data-family="A" data-runs="" data-search="a02 接入与观察 未执行 — a/b用同一统一令牌列会话；本机撤销某会话读取/输入，刷新两端，再恢复明确选项。 两连接共享同一授权视图；撤读取级联输入/提权/清空；同绑定刷新不恢复撤权，错误不泄露凭据。 尚无此用例完整执行证据。 按清单执行正向、负向与恢复判据，并取得对应环境证据。 需用户配合/设施：gui 内两客户端统一令牌，撤某会话读取/输入后刷新两端。">
 <summary><span class="case-id">A02</span><span class="case-title">统一授权同步<small>接入与观察 · —</small></span>
 <span class="badge todo">未执行</span><span class="brief">尚无此用例完整执行证据。</span><span class="expand" aria-hidden="true">＋</span></summary>
 <div class="case-body"><div class="detail-grid">
 <div><h4>测试操作</h4><p>A/B用同一统一令牌列会话；本机撤销某会话读取/输入，刷新两端，再恢复明确选项。</p><h4>通过判据</h4><p>两连接共享同一授权视图；撤读取级联输入/提权/清空；同绑定刷新不恢复撤权，错误不泄露凭据。</p></div>
-<div><h4>已验证到哪里</h4><p>尚无此用例完整执行证据。</p><p class="scope">证据范围：—</p><h4>还需要验证</h4><p>按清单执行正向、负向与恢复判据，并取得对应环境证据。</p></div>
+<div><h4>已验证到哪里</h4><p>尚无此用例完整执行证据。</p><p class="scope">证据范围：—</p><h4>还需要验证</h4><p>按清单执行正向、负向与恢复判据，并取得对应环境证据。 需用户配合/设施：GUI 内两客户端统一令牌，撤某会话读取/输入后刷新两端。</p></div>
 </div><div class="case-guidance"><span>清单参考</span><a href="#tool-list_sessions"><code>list_sessions</code></a><a href="#guide-3">本组前提 ↗</a><a href="#checklist-record">记录口径 ↗</a></div><div class="case-links"><span class="muted">暂无执行记录，按右侧判据补测后登记。</span><a class="permalink" href="#case-A02" aria-label="A02固定链接">#A02</a></div></div></details>
 <details class="case" id="case-A03" data-case="A03" data-state="partial" data-family="A" data-runs="R01 R03 MCP1114" data-search="a03 接入与观察 部分验证 本机 在目标输出本轮run_id与系统/固件标识，显式sessionid/epoch观察；本机/ssh/uart分别留证。 目标及标识正确，核对revision/时间/截断；不按标签猜目标，本机系统标识不代替板卡固件。 本轮通过：mcp1114：targetlabel `ssh · 192.168.10.1` 与屏幕内 root@openwrt 提示符一致；com3 会话显示同一板卡内核日志。 未做跨实例改名或伪造 label 的负向对照。 r01 r03 mcp1114">
 <summary><span class="case-id">A03</span><span class="case-title">目标身份与当前输出<small>接入与观察 · 本机</small></span>
@@ -141,12 +141,12 @@ Windows/Linux安全Reader与Writer已实现，macOS Reader/Writer未实现，
 <div><h4>测试操作</h4><p>分别验证日志字面等待和屏幕等待：本轮独有标识、前轮同名PASS、跨页中文、未换行提示、any/all、有限超时。</p><h4>通过判据</h4><p>只在指定来源/起点和范围满足时匹配；不跨屏幕版本拼接。日志tail仅界定已提交历史，旧活动屏幕随后滚入历史仍可能被扫描，须结合RUN_ID判断轮次。timeout不等于任务失败或成功。</p></div>
 <div><h4>已验证到哪里</h4><p>MCP1114：命中、超时、start=current/next 三种语义均验证；命中回显行时 provesSuccess=false。</p><p class="scope">证据范围：本机 / SSH</p><h4>还需要验证</h4><p>resumeToken 续等与 any/all 组合未测。</p></div>
 </div><div class="case-guidance"><span>清单参考</span><a href="#tool-wait_text"><code>wait_text</code></a><a href="#guide-4">本组前提 ↗</a><a href="#checklist-record">记录口径 ↗</a></div><div class="case-links"><a class="link-chip" href="#run-01">R01 执行记录 ↗</a><a class="link-chip" href="#run-02">R02 执行记录 ↗</a><a class="link-chip" href="#run-03">R03 执行记录 ↗</a><a class="link-chip" href="#run-command-01">CMD1 执行记录 ↗</a><a class="link-chip" href="#run-mcp-20261114">MCP1114 执行记录 ↗</a><a class="link-chip quiet" href="#evidence-r01">R01 证据 ↗</a><a class="link-chip quiet" href="#evidence-r02">R02 证据 ↗</a><a class="link-chip quiet" href="#evidence-r03">R03 证据 ↗</a><a class="link-chip quiet" href="#evidence-command-01">CMD1 证据 ↗</a><a class="link-chip quiet" href="#evidence-mcp-20261114">MCP1114 证据 ↗</a><a class="permalink" href="#case-S04" aria-label="S04固定链接">#S04</a></div></div></details>
-<details class="case" id="case-S05" data-case="S05" data-state="todo" data-family="S" data-runs="" data-search="s05 交互与任务 未执行 — 等待尚未出现的标识后取消该读取请求，同时观察正在运行的测试程序。 等待被取消，远端程序继续；没有额外ctrl+c或输入。保存取消响应和程序后续输出。 尚无此用例完整执行证据。 当前harness没有显式取消单次mcp请求的入口；超时已测但不能代替取消。">
+<details class="case" id="case-S05" data-case="S05" data-state="todo" data-family="S" data-runs="" data-search="s05 交互与任务 未执行 — 等待尚未出现的标识后取消该读取请求，同时观察正在运行的测试程序。 等待被取消，远端程序继续；没有额外ctrl+c或输入。保存取消响应和程序后续输出。 尚无此用例完整执行证据。 当前harness没有显式取消单次mcp请求的入口；超时已测但不能代替取消。 需用户配合/设施：agent 工具无「取消单请求」入口（stop_task 发 ctrl+c，不合判据）。">
 <summary><span class="case-id">S05</span><span class="case-title">取消观察请求<small>交互与任务 · —</small></span>
 <span class="badge todo">未执行</span><span class="brief">尚无此用例完整执行证据。</span><span class="expand" aria-hidden="true">＋</span></summary>
 <div class="case-body"><div class="detail-grid">
 <div><h4>测试操作</h4><p>等待尚未出现的标识后取消该读取请求，同时观察正在运行的测试程序。</p><h4>通过判据</h4><p>等待被取消，远端程序继续；没有额外Ctrl+C或输入。保存取消响应和程序后续输出。</p></div>
-<div><h4>已验证到哪里</h4><p>尚无此用例完整执行证据。</p><p class="scope">证据范围：—</p><h4>还需要验证</h4><p>当前harness没有显式取消单次MCP请求的入口；超时已测但不能代替取消。</p></div>
+<div><h4>已验证到哪里</h4><p>尚无此用例完整执行证据。</p><p class="scope">证据范围：—</p><h4>还需要验证</h4><p>当前harness没有显式取消单次MCP请求的入口；超时已测但不能代替取消。 需用户配合/设施：Agent 工具无「取消单请求」入口（stop_task 发 Ctrl+C，不合判据）。</p></div>
 </div><div class="case-guidance"><span>清单参考</span><a href="#tool-wait_text"><code>wait_text</code></a><a href="#guide-4">本组前提 ↗</a><a href="#checklist-record">记录口径 ↗</a></div><div class="case-links"><span class="muted">暂无执行记录，按右侧判据补测后登记。</span><a class="permalink" href="#case-S05" aria-label="S05固定链接">#S05</a></div></div></details>
 <details class="case" id="case-S06" data-case="S06" data-state="partial" data-family="S" data-runs="R01 R03 CMD1 HDMI1104 MCP1114" data-search="s06 交互与任务 部分验证 本机 / ssh / uart 在可信提示符环境启动持续超过30秒、带本轮begin/end标识的任务；通过query_task按taskid及原启动operationid查询。 查询不再执行，任务与日志可关联；完成证据/退出码按实际返回，提示符或文本出现不能代替功能测试结果。 mcp1114：start_task 返回 taskid，query_task 可按 taskid 查询；屏幕出现 pass 且提示符已回，任务仍 running、exitcode=null。 shell integration 不可用导致完成判定缺失。 r01 r03 cmd1 hdmi1104 mcp1114">
 <summary><span class="case-id">S06</span><span class="case-title">长任务启动与查询<small>交互与任务 · 本机 / SSH / UART</small></span>
@@ -162,19 +162,19 @@ Windows/Linux安全Reader与Writer已实现，macOS Reader/Writer未实现，
 <div><h4>测试操作</h4><p>对获准停止的测试任务调用stop_task，再精确重试停止；随后等待新的可信提示符。</p><h4>通过判据</h4><p>停止请求幂等；区分已请求停止、已确认终止和未知，不把Ctrl+C提交当作进程已终止；可信提示符出现后才恢复命令就绪。</p></div>
 <div><h4>已验证到哪里</h4><p>MCP1114：stop_task 返回 stop_requested=true、terminationConfirmed=false，重复查询仍为 stop_requested。</p><p class="scope">证据范围：本机 / SSH / UART</p><h4>还需要验证</h4><p>未取得停止后的确认终止事实。</p></div>
 </div><div class="case-guidance"><span>清单参考</span><a href="#tool-stop_task"><code>stop_task</code></a><a href="#guide-4">本组前提 ↗</a><a href="#checklist-record">记录口径 ↗</a></div><div class="case-links"><a class="link-chip" href="#run-01">R01 执行记录 ↗</a><a class="link-chip" href="#run-03">R03 执行记录 ↗</a><a class="link-chip" href="#run-command-01">CMD1 执行记录 ↗</a><a class="link-chip" href="#run-failed-retest-02">RETEST2 执行记录 ↗</a><a class="link-chip" href="#run-uart-stop-retest-03">UARTRE3 执行记录 ↗</a><a class="link-chip" href="#run-mcp-20261114">MCP1114 执行记录 ↗</a><a class="link-chip quiet" href="#evidence-r01">R01 证据 ↗</a><a class="link-chip quiet" href="#evidence-r03">R03 证据 ↗</a><a class="link-chip quiet" href="#evidence-command-01">CMD1 证据 ↗</a><a class="link-chip quiet" href="#evidence-failed-retest-02">RETEST2 证据 ↗</a><a class="link-chip quiet" href="#evidence-uart-stop-retest-03">UARTRE3 证据 ↗</a><a class="link-chip quiet" href="#evidence-mcp-20261114">MCP1114 证据 ↗</a><a class="link-chip warm" href="#issue-uart-stop">UART · Ctrl+C未保证停止脚本 ↗</a><a class="permalink" href="#case-S07" aria-label="S07固定链接">#S07</a></div></div></details>
-<details class="case" id="case-S08" data-case="S08" data-state="todo" data-family="S" data-runs="" data-search="s08 交互与任务 未执行 — 任务运行或agent持有控制时，由人手动输入；随后用旧token/原task请求输入或停止。 人工接管后旧控制请求被拒绝，设备侧无额外输入，不自动抢回；重新观察不自动恢复旧任务停止权。 尚无此用例完整执行证据。 需要真实人工在指定终端接管；已询问是否配合，未收到相应确认，本轮未模拟真人。">
+<details class="case" id="case-S08" data-case="S08" data-state="todo" data-family="S" data-runs="" data-search="s08 交互与任务 未执行 — 任务运行或agent持有控制时，由人手动输入；随后用旧token/原task请求输入或停止。 人工接管后旧控制请求被拒绝，设备侧无额外输入，不自动抢回；重新观察不自动恢复旧任务停止权。 尚无此用例完整执行证据。 需要真实人工在指定终端接管；已询问是否配合，未收到相应确认，本轮未模拟真人。 需用户配合/设施：人工接管后旧控制拒绝；需你在 gui 手动输入。">
 <summary><span class="case-id">S08</span><span class="case-title">人工接管后拒绝旧控制<small>交互与任务 · —</small></span>
 <span class="badge todo">未执行</span><span class="brief">尚无此用例完整执行证据。</span><span class="expand" aria-hidden="true">＋</span></summary>
 <div class="case-body"><div class="detail-grid">
 <div><h4>测试操作</h4><p>任务运行或Agent持有控制时，由人手动输入；随后用旧token/原task请求输入或停止。</p><h4>通过判据</h4><p>人工接管后旧控制请求被拒绝，设备侧无额外输入，不自动抢回；重新观察不自动恢复旧任务停止权。</p></div>
-<div><h4>已验证到哪里</h4><p>尚无此用例完整执行证据。</p><p class="scope">证据范围：—</p><h4>还需要验证</h4><p>需要真实人工在指定终端接管；已询问是否配合，未收到相应确认，本轮未模拟真人。</p></div>
+<div><h4>已验证到哪里</h4><p>尚无此用例完整执行证据。</p><p class="scope">证据范围：—</p><h4>还需要验证</h4><p>需要真实人工在指定终端接管；已询问是否配合，未收到相应确认，本轮未模拟真人。 需用户配合/设施：人工接管后旧控制拒绝；需你在 GUI 手动输入。</p></div>
 </div><div class="case-guidance"><span>清单参考</span><a href="#tool-interact_terminal"><code>interact_terminal</code></a><a href="#tool-start_task"><code>start_task</code></a><a href="#tool-stop_task"><code>stop_task</code></a><a href="#guide-4">本组前提 ↗</a><a href="#checklist-record">记录口径 ↗</a></div><div class="case-links"><span class="muted">暂无执行记录，按右侧判据补测后登记。</span><a class="permalink" href="#case-S08" aria-label="S08固定链接">#S08</a></div></div></details>
-<details class="case" id="case-S09" data-case="S09" data-state="todo" data-family="S" data-runs="" data-search="s09 交互与任务 未执行 — 运行任务期间断开mcp客户端，再以同一身份重新接入并查询原操作。 已受理异步任务可按保留记录查询，不重复启动；读取取消、客户端断流与远端执行终止分别判断。过期/不可用记录不自动重跑。 尚无此用例完整执行证据。 需要可控mcp客户端真实断开/重连；当前持有连接的harness未提供操作入口。">
+<details class="case" id="case-S09" data-case="S09" data-state="todo" data-family="S" data-runs="" data-search="s09 交互与任务 未执行 — 运行任务期间断开mcp客户端，再以同一身份重新接入并查询原操作。 已受理异步任务可按保留记录查询，不重复启动；读取取消、客户端断流与远端执行终止分别判断。过期/不可用记录不自动重跑。 尚无此用例完整执行证据。 需要可控mcp客户端真实断开/重连；当前持有连接的harness未提供操作入口。 需用户配合/设施：可控客户端真实断开/重连；需原始 http 客户端。">
 <summary><span class="case-id">S09</span><span class="case-title">客户端断流后恢复查询<small>交互与任务 · —</small></span>
 <span class="badge todo">未执行</span><span class="brief">尚无此用例完整执行证据。</span><span class="expand" aria-hidden="true">＋</span></summary>
 <div class="case-body"><div class="detail-grid">
 <div><h4>测试操作</h4><p>运行任务期间断开MCP客户端，再以同一身份重新接入并查询原操作。</p><h4>通过判据</h4><p>已受理异步任务可按保留记录查询，不重复启动；读取取消、客户端断流与远端执行终止分别判断。过期/不可用记录不自动重跑。</p></div>
-<div><h4>已验证到哪里</h4><p>尚无此用例完整执行证据。</p><p class="scope">证据范围：—</p><h4>还需要验证</h4><p>需要可控MCP客户端真实断开/重连；当前持有连接的harness未提供操作入口。</p></div>
+<div><h4>已验证到哪里</h4><p>尚无此用例完整执行证据。</p><p class="scope">证据范围：—</p><h4>还需要验证</h4><p>需要可控MCP客户端真实断开/重连；当前持有连接的harness未提供操作入口。 需用户配合/设施：可控客户端真实断开/重连；需原始 HTTP 客户端。</p></div>
 </div><div class="case-guidance"><span>清单参考</span><a href="#tool-query_task"><code>query_task</code></a><a href="#guide-4">本组前提 ↗</a><a href="#checklist-record">记录口径 ↗</a></div><div class="case-links"><span class="muted">暂无执行记录，按右侧判据补测后登记。</span><a class="permalink" href="#case-S09" aria-label="S09固定链接">#S09</a></div></div></details>
 <details class="case" id="case-U01" data-case="U01" data-state="partial" data-family="U" data-runs="R01 R02 HDMI1104" data-search="u01 uart 部分验证 uart只读 在设备启动前保持uart连接并建立书签，执行获准重启；启动后慢读分页并核对早期启动标识。 保留范围内的早期日志可续读，顺序/序号可对照；读到缺口明确记录。rx驱动丢字节、缓存淘汰和mcp截断分别归因。 已有启动历史分页可回查；第二轮1086行顺序连续。 hdmi1104首次探测标记未被mcp读取，用户报告gui已有结果；后续独立格式查询与采集读取正常。 本轮获准重启、完整串口参数、启动前后对照；未向板卡写字节。 首次探测观察不一致仍待定位，不能以后续正常读取改写。 r01 r02 hdmi1104">
 <summary><span class="case-id">U01</span><span class="case-title">启动日志与跨重启续读<small>UART · UART只读</small></span>
@@ -197,12 +197,12 @@ Windows/Linux安全Reader与Writer已实现，macOS Reader/Writer未实现，
 <div><h4>测试操作</h4><p>在设备CLI启动带静默阶段和迟发错误的程序，用start_task/query_task及wait_text观察。</p><h4>通过判据</h4><p>静默不判成功、不捏造退出码；期限unknown保留原ID，后续错误可观察；不使用已退役run_command。</p></div>
 <div><h4>已验证到哪里</h4><p>MCP1114：sleep 6 后迟发输出 UART-LATE-ERR-b4-06；等待会命中输入回显行，start=next 在输出早于等待时扫描 0 字节。</p><p class="scope">证据范围：真实UART</p><h4>还需要验证</h4><p>未做串口乱码/丢字节对照。</p></div>
 </div><div class="case-guidance"><span>清单参考</span><a href="#guide-5">本组前提 ↗</a><a href="#checklist-record">记录口径 ↗</a></div><div class="case-links"><a class="link-chip" href="#run-command-01">CMD1 执行记录 ↗</a><a class="link-chip" href="#run-mcp-20261114">MCP1114 执行记录 ↗</a><a class="link-chip quiet" href="#evidence-command-01">CMD1 证据 ↗</a><a class="link-chip quiet" href="#evidence-mcp-20261114">MCP1114 证据 ↗</a><a class="permalink" href="#case-U03" aria-label="U03固定链接">#U03</a></div></div></details>
-<details class="case" id="case-U04" data-case="U04" data-state="todo" data-family="U" data-runs="" data-search="u04 uart 未执行 — 在uart物理链路未断开的情况下执行获准设备重启，从linux进入u-boot/启动过程，再使用旧输入或旧task停止条件。 已识别的可信环境reset使旧控制条件失效；无法可靠识别环境时保持未知、由人工接管，不假设epoch必然变化或盲发旧命令。记录新固件标识与环境证据。 尚无此用例完整执行证据。 按清单执行正向、负向与恢复判据，并取得对应环境证据。">
+<details class="case" id="case-U04" data-case="U04" data-state="todo" data-family="U" data-runs="" data-search="u04 uart 未执行 — 在uart物理链路未断开的情况下执行获准设备重启，从linux进入u-boot/启动过程，再使用旧输入或旧task停止条件。 已识别的可信环境reset使旧控制条件失效；无法可靠识别环境时保持未知、由人工接管，不假设epoch必然变化或盲发旧命令。记录新固件标识与环境证据。 尚无此用例完整执行证据。 按清单执行正向、负向与恢复判据，并取得对应环境证据。 需用户配合/设施：获准重启板卡进 u-boot/启动过程；高风险需你确认。">
 <summary><span class="case-id">U04</span><span class="case-title">环境重置后的旧控制<small>UART · —</small></span>
 <span class="badge todo">未执行</span><span class="brief">尚无此用例完整执行证据。</span><span class="expand" aria-hidden="true">＋</span></summary>
 <div class="case-body"><div class="detail-grid">
 <div><h4>测试操作</h4><p>在UART物理链路未断开的情况下执行获准设备重启，从Linux进入U-Boot/启动过程，再使用旧输入或旧task停止条件。</p><h4>通过判据</h4><p>已识别的可信环境reset使旧控制条件失效；无法可靠识别环境时保持未知、由人工接管，不假设epoch必然变化或盲发旧命令。记录新固件标识与环境证据。</p></div>
-<div><h4>已验证到哪里</h4><p>尚无此用例完整执行证据。</p><p class="scope">证据范围：—</p><h4>还需要验证</h4><p>按清单执行正向、负向与恢复判据，并取得对应环境证据。</p></div>
+<div><h4>已验证到哪里</h4><p>尚无此用例完整执行证据。</p><p class="scope">证据范围：—</p><h4>还需要验证</h4><p>按清单执行正向、负向与恢复判据，并取得对应环境证据。 需用户配合/设施：获准重启板卡进 U-Boot/启动过程；高风险需你确认。</p></div>
 </div><div class="case-guidance"><span>清单参考</span><a href="#guide-5">本组前提 ↗</a><a href="#checklist-record">记录口径 ↗</a></div><div class="case-links"><span class="muted">暂无执行记录，按右侧判据补测后登记。</span><a class="permalink" href="#case-U04" aria-label="U04固定链接">#U04</a></div></div></details>
 <details class="case" id="case-C01" data-case="C01" data-state="failed" data-family="C" data-runs="R01 MCP1114" data-search="c01 清空与权限 失败 本机 输入允许、清空未允许时请求clear_terminal；随后单独允许清空，再分别测scrollback与all。 首次拒绝；授权后的成功表示parser执行完成，范围与契约一致。设备程序继续运行，独立历史录制保持；保存清空前后屏幕和新基线。 mcp1114：两次使用新读取的 cleartoken 调用清空均返回 cursor_stale；token 内 issued 为 json 数字，terminalclearadapter 按字符串解析。 清空功能在本构建不可用；需确认运行二进制与源码一致后修复。 r01 mcp1114">
 <summary><span class="case-id">C01</span><span class="case-title">清空权限与清空范围<small>清空与权限 · 本机</small></span>
@@ -218,12 +218,12 @@ Windows/Linux安全Reader与Writer已实现，macOS Reader/Writer未实现，
 <div><h4>测试操作</h4><p>保存旧日志/观察/capture/expand/inputToken，清空后逐项重用；清空后产生新标识，再精确重试原清空。</p><h4>通过判据</h4><p>旧代际条件按契约失效；精确重试不再次删除新输出，使用新基线继续读。</p></div>
 <div><h4>已验证到哪里</h4><p>旧log/input条件拒绝及清空精确重试保留新输出已有证据。</p><p class="scope">证据范围：本机</p><h4>还需要验证</h4><p>真实有效capture/expand的换代，伪凭据不能代替。</p></div>
 </div><div class="case-guidance"><span>清单参考</span><a href="#tool-read_context"><code>read_context</code></a><a href="#tool-search_context"><code>search_context</code></a><a href="#tool-clear_terminal"><code>clear_terminal</code></a><a href="#guide-6">本组前提 ↗</a><a href="#checklist-record">记录口径 ↗</a></div><div class="case-links"><a class="link-chip" href="#run-01">R01 执行记录 ↗</a><a class="link-chip quiet" href="#evidence-r01">R01 证据 ↗</a><a class="permalink" href="#case-C02" aria-label="C02固定链接">#C02</a></div></div></details>
-<details class="case" id="case-C03" data-case="C03" data-state="todo" data-family="C" data-runs="" data-search="c03 清空与权限 未执行 — 隔离实例撤销读取/输入，分别重置统一令牌、停用再启用，尝试旧接入与绑定。 级联符合契约，所有ai共用主体旧接入失效，旧操作不自动重放；无客户端删除或保存目标授权流程。 尚无此用例完整执行证据。 按清单执行正向、负向与恢复判据，并取得对应环境证据。">
+<details class="case" id="case-C03" data-case="C03" data-state="todo" data-family="C" data-runs="" data-search="c03 清空与权限 未执行 — 隔离实例撤销读取/输入，分别重置统一令牌、停用再启用，尝试旧接入与绑定。 级联符合契约，所有ai共用主体旧接入失效，旧操作不自动重放；无客户端删除或保存目标授权流程。 尚无此用例完整执行证据。 按清单执行正向、负向与恢复判据，并取得对应环境证据。 需用户配合/设施：gui 内复位统一令牌/停用再启用；需你在应用里操作。">
 <summary><span class="case-id">C03</span><span class="case-title">撤权、令牌重置与停用<small>清空与权限 · —</small></span>
 <span class="badge todo">未执行</span><span class="brief">尚无此用例完整执行证据。</span><span class="expand" aria-hidden="true">＋</span></summary>
 <div class="case-body"><div class="detail-grid">
 <div><h4>测试操作</h4><p>隔离实例撤销读取/输入，分别重置统一令牌、停用再启用，尝试旧接入与绑定。</p><h4>通过判据</h4><p>级联符合契约，所有AI共用主体旧接入失效，旧操作不自动重放；无客户端删除或保存目标授权流程。</p></div>
-<div><h4>已验证到哪里</h4><p>尚无此用例完整执行证据。</p><p class="scope">证据范围：—</p><h4>还需要验证</h4><p>按清单执行正向、负向与恢复判据，并取得对应环境证据。</p></div>
+<div><h4>已验证到哪里</h4><p>尚无此用例完整执行证据。</p><p class="scope">证据范围：—</p><h4>还需要验证</h4><p>按清单执行正向、负向与恢复判据，并取得对应环境证据。 需用户配合/设施：GUI 内复位统一令牌/停用再启用；需你在应用里操作。</p></div>
 </div><div class="case-guidance"><span>清单参考</span><a href="#tool-list_sessions"><code>list_sessions</code></a><a href="#tool-request_elevation"><code>request_elevation</code></a><a href="#tool-list_captures"><code>list_captures</code></a><a href="#guide-6">本组前提 ↗</a><a href="#checklist-record">记录口径 ↗</a></div><div class="case-links"><span class="muted">暂无执行记录，按右侧判据补测后登记。</span><a class="permalink" href="#case-C03" aria-label="C03固定链接">#C03</a></div></div></details>
 <details class="case" id="case-B01" data-case="B01" data-state="partial" data-family="B" data-runs="MCP1114" data-search="b01 双通道 部分验证 — 用户确认同板ssh/uart配对；uart保持连接，分别建立两通道书签；ssh执行获准动作，uart观察启动/重启输出。 两个sessionid/epoch及游标独立；记录动作与本轮固件标识，不按相同标题/时间自行判定同一板卡。 本轮通过：mcp1114：ssh 写 `/tmp/b4dual.txt`，uart `cat` 读到同一 `b4dual-marker-1794662708`，确认同板双通道。 未做双通道同时写入的互斥观察。 mcp1114">
 <summary><span class="case-id">B01</span><span class="case-title">同板双通道验证<small>双通道 · —</small></span>
@@ -253,19 +253,19 @@ Windows/Linux安全Reader与Writer已实现，macOS Reader/Writer未实现，
 <div><h4>测试操作</h4><p>Windows/Linux/macOS分别执行相应核心用例，记录OS/Qt/认证/驱动/构建与二进制来源。</p><h4>通过判据</h4><p>逐平台报告；Windows/Linux Reader/Writer可测，macOS后端为开发缺口；不能用其他平台成绩替代。</p></div>
 <div><h4>已验证到哪里</h4><p>已通过MCP工具验证Linux本机子集；没有Windows/macOS工具测试成绩。</p><p class="scope">证据范围：本机</p><h4>还需要验证</h4><p>各平台独立运行与真实设备验收；macOS Reader/Writer仍未实现。</p></div>
 </div><div class="case-guidance"><span>清单参考</span><a href="#guide-8">本组前提 ↗</a><a href="#checklist-record">记录口径 ↗</a></div><div class="case-links"><a class="link-chip" href="#run-01">R01 执行记录 ↗</a><a class="link-chip" href="#run-02">R02 执行记录 ↗</a><a class="link-chip" href="#run-03">R03 执行记录 ↗</a><a class="link-chip quiet" href="#evidence-r01">R01 证据 ↗</a><a class="link-chip quiet" href="#evidence-r02">R02 证据 ↗</a><a class="link-chip quiet" href="#evidence-r03">R03 证据 ↗</a><a class="permalink" href="#case-P02" aria-label="P02固定链接">#P02</a></div></div></details>
-<details class="case" id="case-P03" data-case="P03" data-state="todo" data-family="P" data-runs="" data-search="p03 平台与性能 未执行 — 固定设备输出负载、缓存、uart参数/rx队列与客户端速度；对照mcp关闭/开启，记录持续输出完整性、gui帧与采样数据。 区分设备/驱动丢字节、缓存淘汰和响应裁剪；测量方法可复现。吞吐下降目标≤5%，gui frame p95增量目标≤2ms。 尚无此用例完整执行证据。 按清单执行正向、负向与恢复判据，并取得对应环境证据。">
+<details class="case" id="case-P03" data-case="P03" data-state="todo" data-family="P" data-runs="" data-search="p03 平台与性能 未执行 — 固定设备输出负载、缓存、uart参数/rx队列与客户端速度；对照mcp关闭/开启，记录持续输出完整性、gui帧与采样数据。 区分设备/驱动丢字节、缓存淘汰和响应裁剪；测量方法可复现。吞吐下降目标≤5%，gui frame p95增量目标≤2ms。 尚无此用例完整执行证据。 按清单执行正向、负向与恢复判据，并取得对应环境证据。 需用户配合/设施：固定设备负载 + gui 帧时间测量（工位 gui）。">
 <summary><span class="case-id">P03</span><span class="case-title">输出吞吐与 GUI 帧时间<small>平台与性能 · —</small></span>
 <span class="badge todo">未执行</span><span class="brief">尚无此用例完整执行证据。</span><span class="expand" aria-hidden="true">＋</span></summary>
 <div class="case-body"><div class="detail-grid">
 <div><h4>测试操作</h4><p>固定设备输出负载、缓存、UART参数/RX队列与客户端速度；对照MCP关闭/开启，记录持续输出完整性、GUI帧与采样数据。</p><h4>通过判据</h4><p>区分设备/驱动丢字节、缓存淘汰和响应裁剪；测量方法可复现。吞吐下降目标≤5%，GUI frame P95增量目标≤2ms。</p></div>
-<div><h4>已验证到哪里</h4><p>尚无此用例完整执行证据。</p><p class="scope">证据范围：—</p><h4>还需要验证</h4><p>按清单执行正向、负向与恢复判据，并取得对应环境证据。</p></div>
+<div><h4>已验证到哪里</h4><p>尚无此用例完整执行证据。</p><p class="scope">证据范围：—</p><h4>还需要验证</h4><p>按清单执行正向、负向与恢复判据，并取得对应环境证据。 需用户配合/设施：固定设备负载 + GUI 帧时间测量（工位 GUI）。</p></div>
 </div><div class="case-guidance"><span>清单参考</span><a href="#guide-8">本组前提 ↗</a><a href="#checklist-record">记录口径 ↗</a></div><div class="case-links"><span class="muted">暂无执行记录，按右侧判据补测后登记。</span><a class="permalink" href="#case-P03" aria-label="P03固定链接">#P03</a></div></div></details>
-<details class="case" id="case-P04" data-case="P04" data-state="todo" data-family="P" data-runs="" data-search="p04 平台与性能 未执行 — 同会话新采样合计≤4hz，最多4客户端连接，测慢客户端、过载、期限边缘和有界并发。 有效读取≥99%、成功rpc p95≤100ms、gui捕获p95≤2ms；单列busy/缺口、最长无成功间隔与水位；不测已退役预授权期限。 尚无此用例完整执行证据。 按清单执行正向、负向与恢复判据，并取得对应环境证据。">
+<details class="case" id="case-P04" data-case="P04" data-state="todo" data-family="P" data-runs="" data-search="p04 平台与性能 未执行 — 同会话新采样合计≤4hz，最多4客户端连接，测慢客户端、过载、期限边缘和有界并发。 有效读取≥99%、成功rpc p95≤100ms、gui捕获p95≤2ms；单列busy/缺口、最长无成功间隔与水位；不测已退役预授权期限。 尚无此用例完整执行证据。 按清单执行正向、负向与恢复判据，并取得对应环境证据。 需用户配合/设施：最多 4 客户端 + 慢客户端/过载注入。">
 <summary><span class="case-id">P04</span><span class="case-title">并发、慢客户端与过载<small>平台与性能 · —</small></span>
 <span class="badge todo">未执行</span><span class="brief">尚无此用例完整执行证据。</span><span class="expand" aria-hidden="true">＋</span></summary>
 <div class="case-body"><div class="detail-grid">
 <div><h4>测试操作</h4><p>同会话新采样合计≤4Hz，最多4客户端连接，测慢客户端、过载、期限边缘和有界并发。</p><h4>通过判据</h4><p>有效读取≥99%、成功RPC P95≤100ms、GUI捕获P95≤2ms；单列Busy/缺口、最长无成功间隔与水位；不测已退役预授权期限。</p></div>
-<div><h4>已验证到哪里</h4><p>尚无此用例完整执行证据。</p><p class="scope">证据范围：—</p><h4>还需要验证</h4><p>按清单执行正向、负向与恢复判据，并取得对应环境证据。</p></div>
+<div><h4>已验证到哪里</h4><p>尚无此用例完整执行证据。</p><p class="scope">证据范围：—</p><h4>还需要验证</h4><p>按清单执行正向、负向与恢复判据，并取得对应环境证据。 需用户配合/设施：最多 4 客户端 + 慢客户端/过载注入。</p></div>
 </div><div class="case-guidance"><span>清单参考</span><a href="#tool-read_context"><code>read_context</code></a><a href="#tool-wait_text"><code>wait_text</code></a><a href="#guide-8">本组前提 ↗</a><a href="#checklist-record">记录口径 ↗</a></div><div class="case-links"><span class="muted">暂无执行记录，按右侧判据补测后登记。</span><a class="permalink" href="#case-P04" aria-label="P04固定链接">#P04</a></div></div></details>
 <details class="case" id="case-SF01" data-case="SF01" data-state="partial" data-family="SF" data-runs="FILE1 MCP1114" data-search="sf01 sftp上传 部分验证 真实ssh 手动连接测试ssh，记录当前绑定与绝对localpath/remotepath、可信远端目录；文件面板未打开/就绪分别测试。 复用sftp owner异步准备，不要求目录预共享/先开面板；核对服务端hardlink扩展1，不以工具存在宣称可发布。 本轮通过：mcp1114：sftp 上传可用，返回 transferid 与发布事实。 未覆盖后端退出与重连。 file1 mcp1114">
 <summary><span class="case-id">SF01</span><span class="case-title">SFTP 后端准备与能力<small>SFTP上传 · 真实SSH</small></span>
@@ -288,19 +288,19 @@ Windows/Linux安全Reader与Writer已实现，macOS Reader/Writer未实现，
 <div><h4>测试操作</h4><p>用完全相同operationId/参数重试；另用新操作、省略overwrite或false尝试同名目标；对大文件发布前cancel_transfer。</p><h4>通过判据</h4><p>精确重试同transferId且不重传；同名原文件内容不变；取消返回自身临时文件清理事实，发布后取消不删除目标。</p></div>
 <div><h4>已验证到哪里</h4><p>MCP1114：同名不覆盖上传未再要求确认，并返回 state=unknown、TRANSFER_PUBLICATION_UNKNOWN、transferredBytes=34。</p><p class="scope">证据范围：—</p><h4>还需要验证</h4><p>未给出明确“已存在”拒绝；取消路径未测。</p></div>
 </div><div class="case-guidance"><span>清单参考</span><a href="#tool-upload_file"><code>upload_file</code></a><a href="#tool-cancel_transfer"><code>cancel_transfer</code></a><a href="#guide-9">本组前提 ↗</a><a href="#checklist-record">记录口径 ↗</a></div><div class="case-links"><a class="link-chip" href="#run-dev-01">DEV1 执行记录 ↗</a><a class="link-chip" href="#run-mcp-20261114">MCP1114 执行记录 ↗</a><a class="link-chip quiet" href="#evidence-dev-01">DEV1 证据 ↗</a><a class="link-chip quiet" href="#evidence-mcp-20261114">MCP1114 证据 ↗</a><a class="link-chip warm" href="#issue-upload-unknown-1114">MCP1114 · 同名不覆盖上传返回发布未知 ↗</a><a class="permalink" href="#case-SF03" aria-label="SF03固定链接">#SF03</a></div></div></details>
-<details class="case" id="case-SF04" data-case="SF04" data-state="todo" data-family="SF" data-runs="" data-search="sf04 sftp上传 未执行 — 发布前重置统一令牌/停用或断开ssh；受控服务端丢发布响应，查询原transferid。 旧身份/连接不继续准入，已开始发布按事实结算；unknown不换id重传，归属不明的临时文件不乱删。 尚无此用例完整执行证据。 按清单执行正向、负向与恢复判据，并取得对应环境证据。">
+<details class="case" id="case-SF04" data-case="SF04" data-state="todo" data-family="SF" data-runs="" data-search="sf04 sftp上传 未执行 — 发布前重置统一令牌/停用或断开ssh；受控服务端丢发布响应，查询原transferid。 旧身份/连接不继续准入，已开始发布按事实结算；unknown不换id重传，归属不明的临时文件不乱删。 尚无此用例完整执行证据。 按清单执行正向、负向与恢复判据，并取得对应环境证据。 需用户配合/设施：受控 sftp 上传发布前停用/断连。">
 <summary><span class="case-id">SF04</span><span class="case-title">上传绑定失效与丢响应<small>SFTP上传 · —</small></span>
 <span class="badge todo">未执行</span><span class="brief">尚无此用例完整执行证据。</span><span class="expand" aria-hidden="true">＋</span></summary>
 <div class="case-body"><div class="detail-grid">
 <div><h4>测试操作</h4><p>发布前重置统一令牌/停用或断开SSH；受控服务端丢发布响应，查询原transferId。</p><h4>通过判据</h4><p>旧身份/连接不继续准入，已开始发布按事实结算；unknown不换ID重传，归属不明的临时文件不乱删。</p></div>
-<div><h4>已验证到哪里</h4><p>尚无此用例完整执行证据。</p><p class="scope">证据范围：—</p><h4>还需要验证</h4><p>按清单执行正向、负向与恢复判据，并取得对应环境证据。</p></div>
+<div><h4>已验证到哪里</h4><p>尚无此用例完整执行证据。</p><p class="scope">证据范围：—</p><h4>还需要验证</h4><p>按清单执行正向、负向与恢复判据，并取得对应环境证据。 需用户配合/设施：受控 SFTP 上传发布前停用/断连。</p></div>
 </div><div class="case-guidance"><span>清单参考</span><a href="#tool-upload_file"><code>upload_file</code></a><a href="#tool-query_transfer"><code>query_transfer</code></a><a href="#guide-9">本组前提 ↗</a><a href="#checklist-record">记录口径 ↗</a></div><div class="case-links"><span class="muted">暂无执行记录，按右侧判据补测后登记。</span><a class="permalink" href="#case-SF04" aria-label="SF04固定链接">#SF04</a></div></div></details>
-<details class="case" id="case-SF05" data-case="SF05" data-state="todo" data-family="SF" data-runs="" data-search="sf05 sftp上传 未执行 — 在独立sftp连接故障与新上传受理相邻时查询原transferid；另在已有进度后关闭会话，再查询保留事实。 未执行的已受理上传交付终态并释放额度，不永久停在cancel_requested；已知总量不被销毁兜底改成0，未知与空文件0字节分别表示；发布成功/未知事实保持。 尚无此用例完整执行证据。 按清单执行正向、负向与恢复判据，并取得对应环境证据。">
+<details class="case" id="case-SF05" data-case="SF05" data-state="todo" data-family="SF" data-runs="" data-search="sf05 sftp上传 未执行 — 在独立sftp连接故障与新上传受理相邻时查询原transferid；另在已有进度后关闭会话，再查询保留事实。 未执行的已受理上传交付终态并释放额度，不永久停在cancel_requested；已知总量不被销毁兜底改成0，未知与空文件0字节分别表示；发布成功/未知事实保持。 尚无此用例完整执行证据。 按清单执行正向、负向与恢复判据，并取得对应环境证据。 需用户配合/设施：受控 sftp 后端退出与新上传相邻。">
 <summary><span class="case-id">SF05</span><span class="case-title">后端退出与上传结算<small>SFTP上传 · —</small></span>
 <span class="badge todo">未执行</span><span class="brief">尚无此用例完整执行证据。</span><span class="expand" aria-hidden="true">＋</span></summary>
 <div class="case-body"><div class="detail-grid">
 <div><h4>测试操作</h4><p>在独立SFTP连接故障与新上传受理相邻时查询原transferId；另在已有进度后关闭会话，再查询保留事实。</p><h4>通过判据</h4><p>未执行的已受理上传交付终态并释放额度，不永久停在cancel_requested；已知总量不被销毁兜底改成0，未知与空文件0字节分别表示；发布成功/未知事实保持。</p></div>
-<div><h4>已验证到哪里</h4><p>尚无此用例完整执行证据。</p><p class="scope">证据范围：—</p><h4>还需要验证</h4><p>按清单执行正向、负向与恢复判据，并取得对应环境证据。</p></div>
+<div><h4>已验证到哪里</h4><p>尚无此用例完整执行证据。</p><p class="scope">证据范围：—</p><h4>还需要验证</h4><p>按清单执行正向、负向与恢复判据，并取得对应环境证据。 需用户配合/设施：受控 SFTP 后端退出与新上传相邻。</p></div>
 </div><div class="case-guidance"><span>清单参考</span><a href="#tool-upload_file"><code>upload_file</code></a><a href="#tool-query_transfer"><code>query_transfer</code></a><a href="#guide-9">本组前提 ↗</a><a href="#checklist-record">记录口径 ↗</a></div><div class="case-links"><span class="muted">暂无执行记录，按右侧判据补测后登记。</span><a class="permalink" href="#case-SF05" aria-label="SF05固定链接">#SF05</a></div></div></details>
 <details class="case" id="case-DF01" data-case="DF01" data-state="partial" data-family="DF" data-runs="FILE1 MCP1114" data-search="df01 sftp下载 部分验证 linux / 真实ssh 支持writer的平台以当前ssh绑定及绝对路径下载，对照非ssh、旧epoch、非法路径及缺父目录。 合法受理，非法组合无发布；下载不走上传确认，不要求目录预共享；linux受支持本地文件系统已具备writer，macos仍阻塞；非ssh错误不能证明writer路径。 本轮通过：mcp1114：sftp 下载可用，completed、published=true。 未测平台能力差异。 file1 mcp1114">
 <summary><span class="case-id">DF01</span><span class="case-title">下载准入与平台能力<small>SFTP下载 · Linux / 真实SSH</small></span>
@@ -323,40 +323,40 @@ Windows/Linux安全Reader与Writer已实现，macOS Reader/Writer未实现，
 <div><h4>测试操作</h4><p>省略overwrite或false下载到已存在且有已知内容的本地目标；对另一成功请求完全相同参数重试，再用同operationId尝试上传或改本地路径。</p><h4>通过判据</h4><p>默认不覆盖既有目标；精确重试返回原transferId不重传，跨方向/改参冲突，原目标与记录保持。</p></div>
 <div><h4>已验证到哪里</h4><p>本轮通过：MCP1114：本地目标已存在且 overwrite=false 时返回 TRANSFER_LOCAL_TARGET_EXISTS，transferredBytes=0。</p><p class="scope">证据范围：真实SSH / 日志下载</p><h4>还需要验证</h4><p>未测重试与部分写入。</p></div>
 </div><div class="case-guidance"><span>清单参考</span><a href="#tool-download_file"><code>download_file</code></a><a href="#guide-9-2">本组前提 ↗</a><a href="#checklist-record">记录口径 ↗</a></div><div class="case-links"><a class="link-chip" href="#run-dev-01">DEV1 执行记录 ↗</a><a class="link-chip" href="#run-mcp-20261114">MCP1114 执行记录 ↗</a><a class="link-chip quiet" href="#evidence-dev-01">DEV1 证据 ↗</a><a class="link-chip quiet" href="#evidence-mcp-20261114">MCP1114 证据 ↗</a><a class="permalink" href="#case-DF03" aria-label="DF03固定链接">#DF03</a></div></div></details>
-<details class="case" id="case-DF04" data-case="DF04" data-state="todo" data-family="DF" data-runs="" data-search="df04 sftp下载 未执行 mcp工具场景待测 在受控sftp测试端分别提供分段短读、提前eof、读取期间增长和读取前后属性变化的源。 合法分段短读累计完整；提前eof、增长、读错或观察到的属性变化不发布部分文件，报告失败及本次本地临时文件处置。 尚无通过mcp工具执行本项场景的记录。 按本项操作与完整判据，通过mcp工具在隔离目标上执行并核对响应及副作用。">
+<details class="case" id="case-DF04" data-case="DF04" data-state="todo" data-family="DF" data-runs="" data-search="df04 sftp下载 未执行 mcp工具场景待测 在受控sftp测试端分别提供分段短读、提前eof、读取期间增长和读取前后属性变化的源。 合法分段短读累计完整；提前eof、增长、读错或观察到的属性变化不发布部分文件，报告失败及本次本地临时文件处置。 尚无通过mcp工具执行本项场景的记录。 按本项操作与完整判据，通过mcp工具在隔离目标上执行并核对响应及副作用。 需用户配合/设施：受控 sftp 测试端提供短读/eof/源变化。">
 <summary><span class="case-id">DF04</span><span class="case-title">短读、EOF 与源变化<small>SFTP下载 · MCP工具场景待测</small></span>
 <span class="badge todo">未执行</span><span class="brief">尚无通过MCP工具执行本项场景的记录。</span><span class="expand" aria-hidden="true">＋</span></summary>
 <div class="case-body"><div class="detail-grid">
 <div><h4>测试操作</h4><p>在受控SFTP测试端分别提供分段短读、提前EOF、读取期间增长和读取前后属性变化的源。</p><h4>通过判据</h4><p>合法分段短读累计完整；提前EOF、增长、读错或观察到的属性变化不发布部分文件，报告失败及本次本地临时文件处置。</p></div>
-<div><h4>已验证到哪里</h4><p>尚无通过MCP工具执行本项场景的记录。</p><p class="scope">证据范围：MCP工具场景待测</p><h4>还需要验证</h4><p>按本项操作与完整判据，通过MCP工具在隔离目标上执行并核对响应及副作用。</p></div>
+<div><h4>已验证到哪里</h4><p>尚无通过MCP工具执行本项场景的记录。</p><p class="scope">证据范围：MCP工具场景待测</p><h4>还需要验证</h4><p>按本项操作与完整判据，通过MCP工具在隔离目标上执行并核对响应及副作用。 需用户配合/设施：受控 SFTP 测试端提供短读/EOF/源变化。</p></div>
 </div><div class="case-guidance"><span>清单参考</span><a href="#tool-download_file"><code>download_file</code></a><a href="#guide-9-2">本组前提 ↗</a><a href="#checklist-record">记录口径 ↗</a></div><div class="case-links"><span class="muted">暂无执行记录，按右侧判据补测后登记。</span><a class="permalink" href="#case-DF04" aria-label="DF04固定链接">#DF04</a></div></div></details>
-<details class="case" id="case-DF05" data-case="DF05" data-state="todo" data-family="DF" data-runs="" data-search="df05 sftp下载 未执行 mcp工具场景待测 下载中取消、令牌重置/停用/ssh断连；发布与取消相邻时查询原id。 旧身份/连接不继续准入，不删远端源；只清本次临时文件，已发布本地目标保留；cancel_requested不是终态。 尚无通过mcp工具执行本项场景的记录。 按本项操作与完整判据，通过mcp工具在隔离目标上执行并核对响应及副作用。">
+<details class="case" id="case-DF05" data-case="DF05" data-state="todo" data-family="DF" data-runs="" data-search="df05 sftp下载 未执行 mcp工具场景待测 下载中取消、令牌重置/停用/ssh断连；发布与取消相邻时查询原id。 旧身份/连接不继续准入，不删远端源；只清本次临时文件，已发布本地目标保留；cancel_requested不是终态。 尚无通过mcp工具执行本项场景的记录。 按本项操作与完整判据，通过mcp工具在隔离目标上执行并核对响应及副作用。 需用户配合/设施：受控 sftp 端 + 下载中取消/停用/断连。">
 <summary><span class="case-id">DF05</span><span class="case-title">下载取消与绑定失效<small>SFTP下载 · MCP工具场景待测</small></span>
 <span class="badge todo">未执行</span><span class="brief">尚无通过MCP工具执行本项场景的记录。</span><span class="expand" aria-hidden="true">＋</span></summary>
 <div class="case-body"><div class="detail-grid">
 <div><h4>测试操作</h4><p>下载中取消、令牌重置/停用/SSH断连；发布与取消相邻时查询原ID。</p><h4>通过判据</h4><p>旧身份/连接不继续准入，不删远端源；只清本次临时文件，已发布本地目标保留；cancel_requested不是终态。</p></div>
-<div><h4>已验证到哪里</h4><p>尚无通过MCP工具执行本项场景的记录。</p><p class="scope">证据范围：MCP工具场景待测</p><h4>还需要验证</h4><p>按本项操作与完整判据，通过MCP工具在隔离目标上执行并核对响应及副作用。</p></div>
+<div><h4>已验证到哪里</h4><p>尚无通过MCP工具执行本项场景的记录。</p><p class="scope">证据范围：MCP工具场景待测</p><h4>还需要验证</h4><p>按本项操作与完整判据，通过MCP工具在隔离目标上执行并核对响应及副作用。 需用户配合/设施：受控 SFTP 端 + 下载中取消/停用/断连。</p></div>
 </div><div class="case-guidance"><span>清单参考</span><a href="#tool-download_file"><code>download_file</code></a><a href="#tool-query_transfer"><code>query_transfer</code></a><a href="#tool-cancel_transfer"><code>cancel_transfer</code></a><a href="#guide-9-2">本组前提 ↗</a><a href="#checklist-record">记录口径 ↗</a></div><div class="case-links"><span class="muted">暂无执行记录，按右侧判据补测后登记。</span><a class="permalink" href="#case-DF05" aria-label="DF05固定链接">#DF05</a></div></div></details>
-<details class="case" id="case-DF06" data-case="DF06" data-state="todo" data-family="DF" data-runs="" data-search="df06 sftp下载 未执行 mcp工具场景待测 在独立测试目录准备远端符号链接、目录/设备类对象、不可信属主或不安全可写项，再请求下载；另观察受控源替换。 观察到的不安全源被拒绝、没有本地发布；记录可信属主/管理员前提，不声称同账号恶意换路径已被完整隔离。 尚无通过mcp工具执行本项场景的记录。 按本项操作与完整判据，通过mcp工具在隔离目标上执行并核对响应及副作用。">
+<details class="case" id="case-DF06" data-case="DF06" data-state="todo" data-family="DF" data-runs="" data-search="df06 sftp下载 未执行 mcp工具场景待测 在独立测试目录准备远端符号链接、目录/设备类对象、不可信属主或不安全可写项，再请求下载；另观察受控源替换。 观察到的不安全源被拒绝、没有本地发布；记录可信属主/管理员前提，不声称同账号恶意换路径已被完整隔离。 尚无通过mcp工具执行本项场景的记录。 按本项操作与完整判据，通过mcp工具在隔离目标上执行并核对响应及副作用。 需用户配合/设施：受控目录准备符号链接/目录/不可信属主目标。">
 <summary><span class="case-id">DF06</span><span class="case-title">不安全远端源拒绝<small>SFTP下载 · MCP工具场景待测</small></span>
 <span class="badge todo">未执行</span><span class="brief">尚无通过MCP工具执行本项场景的记录。</span><span class="expand" aria-hidden="true">＋</span></summary>
 <div class="case-body"><div class="detail-grid">
 <div><h4>测试操作</h4><p>在独立测试目录准备远端符号链接、目录/设备类对象、不可信属主或不安全可写项，再请求下载；另观察受控源替换。</p><h4>通过判据</h4><p>观察到的不安全源被拒绝、没有本地发布；记录可信属主/管理员前提，不声称同账号恶意换路径已被完整隔离。</p></div>
-<div><h4>已验证到哪里</h4><p>尚无通过MCP工具执行本项场景的记录。</p><p class="scope">证据范围：MCP工具场景待测</p><h4>还需要验证</h4><p>按本项操作与完整判据，通过MCP工具在隔离目标上执行并核对响应及副作用。</p></div>
+<div><h4>已验证到哪里</h4><p>尚无通过MCP工具执行本项场景的记录。</p><p class="scope">证据范围：MCP工具场景待测</p><h4>还需要验证</h4><p>按本项操作与完整判据，通过MCP工具在隔离目标上执行并核对响应及副作用。 需用户配合/设施：受控目录准备符号链接/目录/不可信属主目标。</p></div>
 </div><div class="case-guidance"><span>清单参考</span><a href="#tool-download_file"><code>download_file</code></a><a href="#guide-9-2">本组前提 ↗</a><a href="#checklist-record">记录口径 ↗</a></div><div class="case-links"><span class="muted">暂无执行记录，按右侧判据补测后登记。</span><a class="permalink" href="#case-DF06" aria-label="DF06固定链接">#DF06</a></div></div></details>
-<details class="case" id="case-DF07" data-case="DF07" data-state="todo" data-family="DF" data-runs="" data-search="df07 sftp下载 未执行 mcp工具场景待测 隔离目录中替换目标父目录/祖先；另一轮默认不覆盖发布前竞争创建同名文件。 固定目录/目标边界，不覆盖竞争文件；取消只处理本次所有物，不宣称句柄固定等于检查acl/owner。 尚无通过mcp工具执行本项场景的记录。 按本项操作与完整判据，通过mcp工具在隔离目标上执行并核对响应及副作用。">
+<details class="case" id="case-DF07" data-case="DF07" data-state="todo" data-family="DF" data-runs="" data-search="df07 sftp下载 未执行 mcp工具场景待测 隔离目录中替换目标父目录/祖先；另一轮默认不覆盖发布前竞争创建同名文件。 固定目录/目标边界，不覆盖竞争文件；取消只处理本次所有物，不宣称句柄固定等于检查acl/owner。 尚无通过mcp工具执行本项场景的记录。 按本项操作与完整判据，通过mcp工具在隔离目标上执行并核对响应及副作用。 需用户配合/设施：受控目录替换目标父目录/祖先 + 竞争创建。">
 <summary><span class="case-id">DF07</span><span class="case-title">本地路径竞争与发布<small>SFTP下载 · MCP工具场景待测</small></span>
 <span class="badge todo">未执行</span><span class="brief">尚无通过MCP工具执行本项场景的记录。</span><span class="expand" aria-hidden="true">＋</span></summary>
 <div class="case-body"><div class="detail-grid">
 <div><h4>测试操作</h4><p>隔离目录中替换目标父目录/祖先；另一轮默认不覆盖发布前竞争创建同名文件。</p><h4>通过判据</h4><p>固定目录/目标边界，不覆盖竞争文件；取消只处理本次所有物，不宣称句柄固定等于检查ACL/owner。</p></div>
-<div><h4>已验证到哪里</h4><p>尚无通过MCP工具执行本项场景的记录。</p><p class="scope">证据范围：MCP工具场景待测</p><h4>还需要验证</h4><p>按本项操作与完整判据，通过MCP工具在隔离目标上执行并核对响应及副作用。</p></div>
+<div><h4>已验证到哪里</h4><p>尚无通过MCP工具执行本项场景的记录。</p><p class="scope">证据范围：MCP工具场景待测</p><h4>还需要验证</h4><p>按本项操作与完整判据，通过MCP工具在隔离目标上执行并核对响应及副作用。 需用户配合/设施：受控目录替换目标父目录/祖先 + 竞争创建。</p></div>
 </div><div class="case-guidance"><span>清单参考</span><a href="#tool-download_file"><code>download_file</code></a><a href="#guide-9-2">本组前提 ↗</a><a href="#checklist-record">记录口径 ↗</a></div><div class="case-links"><span class="muted">暂无执行记录，按右侧判据补测后登记。</span><a class="permalink" href="#case-DF07" aria-label="DF07固定链接">#DF07</a></div></div></details>
-<details class="case" id="case-UF01" data-case="UF01" data-state="todo" data-family="UF" data-runs="" data-search="uf01 uart文件 未执行 — 直接localpath和当前串口上传，remotename省略/显式对照；错误transport、旧epoch、非法名与不支持参数。 有效绑定和参数才准入，非法组合零payload；确认准确显示目标及默认源名，不依赖旧targetid/revision。 尚无此用例完整执行证据。 按清单执行正向、负向与恢复判据，并取得对应环境证据。">
+<details class="case" id="case-UF01" data-case="UF01" data-state="todo" data-family="UF" data-runs="" data-search="uf01 uart文件 未执行 — 直接localpath和当前串口上传，remotename省略/显式对照；错误transport、旧epoch、非法名与不支持参数。 有效绑定和参数才准入，非法组合零payload；确认准确显示目标及默认源名，不依赖旧targetid/revision。 尚无此用例完整执行证据。 按清单执行正向、负向与恢复判据，并取得对应环境证据。 需用户配合/设施：板卡侧先准备 rz 接收端；需你配合。">
 <summary><span class="case-id">UF01</span><span class="case-title">串口上传参数与绑定<small>UART文件 · —</small></span>
 <span class="badge todo">未执行</span><span class="brief">尚无此用例完整执行证据。</span><span class="expand" aria-hidden="true">＋</span></summary>
 <div class="case-body"><div class="detail-grid">
 <div><h4>测试操作</h4><p>直接localPath和当前串口上传，remoteName省略/显式对照；错误transport、旧epoch、非法名与不支持参数。</p><h4>通过判据</h4><p>有效绑定和参数才准入，非法组合零payload；确认准确显示目标及默认源名，不依赖旧targetId/revision。</p></div>
-<div><h4>已验证到哪里</h4><p>尚无此用例完整执行证据。</p><p class="scope">证据范围：—</p><h4>还需要验证</h4><p>按清单执行正向、负向与恢复判据，并取得对应环境证据。</p></div>
+<div><h4>已验证到哪里</h4><p>尚无此用例完整执行证据。</p><p class="scope">证据范围：—</p><h4>还需要验证</h4><p>按清单执行正向、负向与恢复判据，并取得对应环境证据。 需用户配合/设施：板卡侧先准备 rz 接收端；需你配合。</p></div>
 </div><div class="case-guidance"><span>清单参考</span><a href="#tool-upload_serial_file"><code>upload_serial_file</code></a><a href="#guide-9-3">本组前提 ↗</a><a href="#checklist-record">记录口径 ↗</a></div><div class="case-links"><span class="muted">暂无执行记录，按右侧判据补测后登记。</span><a class="permalink" href="#case-UF01" aria-label="UF01固定链接">#UF01</a></div></div></details>
 <details class="case" id="case-UF02" data-case="UF02" data-state="partial" data-family="UF" data-runs="SERIAL1" data-search="uf02 uart文件 部分验证 真实uart / zmodem 独立准备接收端，本ai持有空闲输入控制时发送；另测未提交完输入、人工传输与其他控制竞争。 同主体控制自动衔接原zmodem owner；不自动rz、不抢占，忙碌明确，不额外打开串口。 通过interact_terminal启动接收，保持本ai控制后调用上传；工具自动衔接控制并完成传输，无手动release前置。 人工传输占用、其他控制竞争及未完成输入的负向组合仍待执行。 serial1">
 <summary><span class="case-id">UF02</span><span class="case-title">输入控制与传输交接<small>UART文件 · 真实UART / ZMODEM</small></span>
@@ -372,40 +372,40 @@ Windows/Linux安全Reader与Writer已实现，macOS Reader/Writer未实现，
 <div><h4>测试操作</h4><p>上传带RUN_ID的小二进制与独立空文件，按原transferId查询；用另行获准方式读取接收端文件、大小与hash。</p><h4>通过判据</h4><p>completed须protocolCompleted=true且completedFiles=1/fileConfirmed=true，空文件总量为0；remotePublication仍unknown、contentVerified仍false，设备侧校验另附证据。</p></div>
 <div><h4>已验证到哪里</h4><p>protocolCompleted=true、fileConfirmed=true、completedFiles=1、confirmedBytes=1048576；同串口sha256sum/wc与本机源一致。</p><p class="scope">证据范围：真实UART / 1MiB随机文件</p><h4>还需要验证</h4><p>空文件及更多接收端仍待验收；remotePublication仍unknown，contentVerified仍false，外部校验另记。</p></div>
 </div><div class="case-guidance"><span>清单参考</span><a href="#tool-upload_serial_file"><code>upload_serial_file</code></a><a href="#tool-query_serial_transfer"><code>query_serial_transfer</code></a><a href="#guide-9-3">本组前提 ↗</a><a href="#checklist-record">记录口径 ↗</a></div><div class="case-links"><a class="link-chip" href="#run-serial-01">SERIAL1 执行记录 ↗</a><a class="link-chip quiet" href="#evidence-serial-01">SERIAL1 证据 ↗</a><a class="permalink" href="#case-UF03" aria-label="UF03固定链接">#UF03</a></div></div></details>
-<details class="case" id="case-UF04" data-case="UF04" data-state="todo" data-family="UF" data-runs="" data-search="uf04 uart文件 未执行 — 用明确配置为跳过的接收端制造zskip，核对既有文件及传输响应。 协议可以结束但state=skipped、fileconfirmed=false、completedfiles=0；不能报告送达，既有内容按接收端策略核验。 尚无此用例完整执行证据。 按清单执行正向、负向与恢复判据，并取得对应环境证据。">
+<details class="case" id="case-UF04" data-case="UF04" data-state="todo" data-family="UF" data-runs="" data-search="uf04 uart文件 未执行 — 用明确配置为跳过的接收端制造zskip，核对既有文件及传输响应。 协议可以结束但state=skipped、fileconfirmed=false、completedfiles=0；不能报告送达，既有内容按接收端策略核验。 尚无此用例完整执行证据。 按清单执行正向、负向与恢复判据，并取得对应环境证据。 需用户配合/设施：明确降级为跳过的接收端制造 zskip。">
 <summary><span class="case-id">UF04</span><span class="case-title">ZSKIP 跳过语义<small>UART文件 · —</small></span>
 <span class="badge todo">未执行</span><span class="brief">尚无此用例完整执行证据。</span><span class="expand" aria-hidden="true">＋</span></summary>
 <div class="case-body"><div class="detail-grid">
 <div><h4>测试操作</h4><p>用明确配置为跳过的接收端制造ZSKIP，核对既有文件及传输响应。</p><h4>通过判据</h4><p>协议可以结束但state=skipped、fileConfirmed=false、completedFiles=0；不能报告送达，既有内容按接收端策略核验。</p></div>
-<div><h4>已验证到哪里</h4><p>尚无此用例完整执行证据。</p><p class="scope">证据范围：—</p><h4>还需要验证</h4><p>按清单执行正向、负向与恢复判据，并取得对应环境证据。</p></div>
+<div><h4>已验证到哪里</h4><p>尚无此用例完整执行证据。</p><p class="scope">证据范围：—</p><h4>还需要验证</h4><p>按清单执行正向、负向与恢复判据，并取得对应环境证据。 需用户配合/设施：明确降级为跳过的接收端制造 ZSKIP。</p></div>
 </div><div class="case-guidance"><span>清单参考</span><a href="#tool-upload_serial_file"><code>upload_serial_file</code></a><a href="#guide-9-3">本组前提 ↗</a><a href="#checklist-record">记录口径 ↗</a></div><div class="case-links"><span class="muted">暂无执行记录，按右侧判据补测后登记。</span><a class="permalink" href="#case-UF04" aria-label="UF04固定链接">#UF04</a></div></div></details>
-<details class="case" id="case-UF05" data-case="UF05" data-state="todo" data-family="UF" data-runs="" data-search="uf05 uart文件 未执行 — 相同operationid和参数重试；修改参数重试；发送中按原transferid取消并继续查询。 精确重试返回原记录不重传，改参冲突；cancel_requested不等于终态，不声称删除或回滚远端文件。 尚无此用例完整执行证据。 按清单执行正向、负向与恢复判据，并取得对应环境证据。">
+<details class="case" id="case-UF05" data-case="UF05" data-state="todo" data-family="UF" data-runs="" data-search="uf05 uart文件 未执行 — 相同operationid和参数重试；修改参数重试；发送中按原transferid取消并继续查询。 精确重试返回原记录不重传，改参冲突；cancel_requested不等于终态，不声称删除或回滚远端文件。 尚无此用例完整执行证据。 按清单执行正向、负向与恢复判据，并取得对应环境证据。 需用户配合/设施：板卡侧 rz 接收端 + 精确重试/取消。">
 <summary><span class="case-id">UF05</span><span class="case-title">串口重试与取消<small>UART文件 · —</small></span>
 <span class="badge todo">未执行</span><span class="brief">尚无此用例完整执行证据。</span><span class="expand" aria-hidden="true">＋</span></summary>
 <div class="case-body"><div class="detail-grid">
 <div><h4>测试操作</h4><p>相同operationId和参数重试；修改参数重试；发送中按原transferId取消并继续查询。</p><h4>通过判据</h4><p>精确重试返回原记录不重传，改参冲突；cancel_requested不等于终态，不声称删除或回滚远端文件。</p></div>
-<div><h4>已验证到哪里</h4><p>尚无此用例完整执行证据。</p><p class="scope">证据范围：—</p><h4>还需要验证</h4><p>按清单执行正向、负向与恢复判据，并取得对应环境证据。</p></div>
+<div><h4>已验证到哪里</h4><p>尚无此用例完整执行证据。</p><p class="scope">证据范围：—</p><h4>还需要验证</h4><p>按清单执行正向、负向与恢复判据，并取得对应环境证据。 需用户配合/设施：板卡侧 rz 接收端 + 精确重试/取消。</p></div>
 </div><div class="case-guidance"><span>清单参考</span><a href="#tool-upload_serial_file"><code>upload_serial_file</code></a><a href="#tool-query_serial_transfer"><code>query_serial_transfer</code></a><a href="#tool-cancel_serial_transfer"><code>cancel_serial_transfer</code></a><a href="#guide-9-3">本组前提 ↗</a><a href="#checklist-record">记录口径 ↗</a></div><div class="case-links"><span class="muted">暂无执行记录，按右侧判据补测后登记。</span><a class="permalink" href="#case-UF05" aria-label="UF05固定链接">#UF05</a></div></div></details>
-<details class="case" id="case-UF06" data-case="UF06" data-state="todo" data-family="UF" data-runs="" data-search="uf06 uart文件 未执行 — 发送中重置统一令牌/停用/断连重连；新代际启动获准人工传输后尝试旧取消。 旧绑定停止准入，旧取消/can/清队列不影响新代际/人工任务；当前新连接按默认规则绑定，旧事实保留。 尚无此用例完整执行证据。 按清单执行正向、负向与恢复判据，并取得对应环境证据。">
+<details class="case" id="case-UF06" data-case="UF06" data-state="todo" data-family="UF" data-runs="" data-search="uf06 uart文件 未执行 — 发送中重置统一令牌/停用/断连重连；新代际启动获准人工传输后尝试旧取消。 旧绑定停止准入，旧取消/can/清队列不影响新代际/人工任务；当前新连接按默认规则绑定，旧事实保留。 尚无此用例完整执行证据。 按清单执行正向、负向与恢复判据，并取得对应环境证据。 需用户配合/设施：板卡侧 rz + 换代/重连/旧取消。">
 <summary><span class="case-id">UF06</span><span class="case-title">串口换代与旧取消<small>UART文件 · —</small></span>
 <span class="badge todo">未执行</span><span class="brief">尚无此用例完整执行证据。</span><span class="expand" aria-hidden="true">＋</span></summary>
 <div class="case-body"><div class="detail-grid">
 <div><h4>测试操作</h4><p>发送中重置统一令牌/停用/断连重连；新代际启动获准人工传输后尝试旧取消。</p><h4>通过判据</h4><p>旧绑定停止准入，旧取消/CAN/清队列不影响新代际/人工任务；当前新连接按默认规则绑定，旧事实保留。</p></div>
-<div><h4>已验证到哪里</h4><p>尚无此用例完整执行证据。</p><p class="scope">证据范围：—</p><h4>还需要验证</h4><p>按清单执行正向、负向与恢复判据，并取得对应环境证据。</p></div>
+<div><h4>已验证到哪里</h4><p>尚无此用例完整执行证据。</p><p class="scope">证据范围：—</p><h4>还需要验证</h4><p>按清单执行正向、负向与恢复判据，并取得对应环境证据。 需用户配合/设施：板卡侧 rz + 换代/重连/旧取消。</p></div>
 </div><div class="case-guidance"><span>清单参考</span><a href="#tool-upload_serial_file"><code>upload_serial_file</code></a><a href="#tool-query_serial_transfer"><code>query_serial_transfer</code></a><a href="#tool-cancel_serial_transfer"><code>cancel_serial_transfer</code></a><a href="#guide-9-3">本组前提 ↗</a><a href="#checklist-record">记录口径 ↗</a></div><div class="case-links"><span class="muted">暂无执行记录，按右侧判据补测后登记。</span><a class="permalink" href="#case-UF06" aria-label="UF06固定链接">#UF06</a></div></div></details>
-<details class="case" id="case-UF07" data-case="UF07" data-state="todo" data-family="UF" data-runs="" data-search="uf07 uart文件 未执行 — 在允许的波特率下选择会使总期限计算超过1小时的合法本地文件，调用上传并监测协议出站。 在首个协议字节前拒绝，不能通过换operationid续期或绕过硬预算；源准备、拒绝响应和零协议输出有独立证据。 尚无此用例完整执行证据。 按清单执行正向、负向与恢复判据，并取得对应环境证据。">
+<details class="case" id="case-UF07" data-case="UF07" data-state="todo" data-family="UF" data-runs="" data-search="uf07 uart文件 未执行 — 在允许的波特率下选择会使总期限计算超过1小时的合法本地文件，调用上传并监测协议出站。 在首个协议字节前拒绝，不能通过换operationid续期或绕过硬预算；源准备、拒绝响应和零协议输出有独立证据。 尚无此用例完整执行证据。 按清单执行正向、负向与恢复判据，并取得对应环境证据。 需用户配合/设施：合法文件使总期限&gt;1h + 板卡 rz 接收。">
 <summary><span class="case-id">UF07</span><span class="case-title">串口总期限预算<small>UART文件 · —</small></span>
 <span class="badge todo">未执行</span><span class="brief">尚无此用例完整执行证据。</span><span class="expand" aria-hidden="true">＋</span></summary>
 <div class="case-body"><div class="detail-grid">
 <div><h4>测试操作</h4><p>在允许的波特率下选择会使总期限计算超过1小时的合法本地文件，调用上传并监测协议出站。</p><h4>通过判据</h4><p>在首个协议字节前拒绝，不能通过换operationId续期或绕过硬预算；源准备、拒绝响应和零协议输出有独立证据。</p></div>
-<div><h4>已验证到哪里</h4><p>尚无此用例完整执行证据。</p><p class="scope">证据范围：—</p><h4>还需要验证</h4><p>按清单执行正向、负向与恢复判据，并取得对应环境证据。</p></div>
+<div><h4>已验证到哪里</h4><p>尚无此用例完整执行证据。</p><p class="scope">证据范围：—</p><h4>还需要验证</h4><p>按清单执行正向、负向与恢复判据，并取得对应环境证据。 需用户配合/设施：合法文件使总期限&gt;1h + 板卡 rz 接收。</p></div>
 </div><div class="case-guidance"><span>清单参考</span><a href="#tool-upload_serial_file"><code>upload_serial_file</code></a><a href="#guide-9-3">本组前提 ↗</a><a href="#checklist-record">记录口径 ↗</a></div><div class="case-links"><span class="muted">暂无执行记录，按右侧判据补测后登记。</span><a class="permalink" href="#case-UF07" aria-label="UF07固定链接">#UF07</a></div></div></details>
-<details class="case" id="case-UF08" data-case="UF08" data-state="todo" data-family="UF" data-runs="" data-search="uf08 uart文件 未执行 — 在可控接收端完成文件确认后打断最后握手；另测试响应丢失后按原id查询。 已取得的fileconfirmed/confirmedbytes保留，protocolcompleted与终态按实际报告；不把确认后失败改成未发送，不自动重传，远端发布/hash仍未知/未验证。 尚无此用例完整执行证据。 按清单执行正向、负向与恢复判据，并取得对应环境证据。">
+<details class="case" id="case-UF08" data-case="UF08" data-state="todo" data-family="UF" data-runs="" data-search="uf08 uart文件 未执行 — 在可控接收端完成文件确认后打断最后握手；另测试响应丢失后按原id查询。 已取得的fileconfirmed/confirmedbytes保留，protocolcompleted与终态按实际报告；不把确认后失败改成未发送，不自动重传，远端发布/hash仍未知/未验证。 尚无此用例完整执行证据。 按清单执行正向、负向与恢复判据，并取得对应环境证据。 需用户配合/设施：可控接收端最后握手打断。">
 <summary><span class="case-id">UF08</span><span class="case-title">最终握手与确认保留<small>UART文件 · —</small></span>
 <span class="badge todo">未执行</span><span class="brief">尚无此用例完整执行证据。</span><span class="expand" aria-hidden="true">＋</span></summary>
 <div class="case-body"><div class="detail-grid">
 <div><h4>测试操作</h4><p>在可控接收端完成文件确认后打断最后握手；另测试响应丢失后按原ID查询。</p><h4>通过判据</h4><p>已取得的fileConfirmed/confirmedBytes保留，protocolCompleted与终态按实际报告；不把确认后失败改成未发送，不自动重传，远端发布/hash仍未知/未验证。</p></div>
-<div><h4>已验证到哪里</h4><p>尚无此用例完整执行证据。</p><p class="scope">证据范围：—</p><h4>还需要验证</h4><p>按清单执行正向、负向与恢复判据，并取得对应环境证据。</p></div>
+<div><h4>已验证到哪里</h4><p>尚无此用例完整执行证据。</p><p class="scope">证据范围：—</p><h4>还需要验证</h4><p>按清单执行正向、负向与恢复判据，并取得对应环境证据。 需用户配合/设施：可控接收端最后握手打断。</p></div>
 </div><div class="case-guidance"><span>清单参考</span><a href="#tool-upload_serial_file"><code>upload_serial_file</code></a><a href="#tool-query_serial_transfer"><code>query_serial_transfer</code></a><a href="#tool-cancel_serial_transfer"><code>cancel_serial_transfer</code></a><a href="#guide-9-3">本组前提 ↗</a><a href="#checklist-record">记录口径 ↗</a></div><div class="case-links"><span class="muted">暂无执行记录，按右侧判据补测后登记。</span><a class="permalink" href="#case-UF08" aria-label="UF08固定链接">#UF08</a></div></div></details>
 <details class="case" id="case-OF01" data-case="OF01" data-state="partial" data-family="OF" data-runs="DEV1" data-search="of01 覆盖传输 部分验证 真实ssh / 脚本上传覆盖 上传/下载已有普通目标分别省略overwrite、false、新id true，再同id改值；上传确认按x04。 省略/false不覆盖，true按明确意图替换；改参冲突，20工具，查询/取消沿原id；记忆不自动升级覆盖。 一次确认overwrite=true后，初版首次发布与修正版替换均完成；同id改overwrite=false返回target_operation_conflict。 下载覆盖、默认不覆盖及其他平台/文件系统组合仍待通过mcp工具核验。 dev1">
 <summary><span class="case-id">OF01</span><span class="case-title">显式覆盖与操作冲突<small>覆盖传输 · 真实SSH / 脚本上传覆盖</small></span>
@@ -414,47 +414,47 @@ Windows/Linux安全Reader与Writer已实现，macOS Reader/Writer未实现，
 <div><h4>测试操作</h4><p>上传/下载已有普通目标分别省略overwrite、false、新ID true，再同ID改值；上传确认按X04。</p><h4>通过判据</h4><p>省略/false不覆盖，true按明确意图替换；改参冲突，20工具，查询/取消沿原ID；记忆不自动升级覆盖。</p></div>
 <div><h4>已验证到哪里</h4><p>一次确认overwrite=true后，初版首次发布与修正版替换均完成；同ID改overwrite=false返回TARGET_OPERATION_CONFLICT。</p><p class="scope">证据范围：真实SSH / 脚本上传覆盖</p><h4>还需要验证</h4><p>下载覆盖、默认不覆盖及其他平台/文件系统组合仍待通过MCP工具核验。</p></div>
 </div><div class="case-guidance"><span>清单参考</span><a href="#guide-9-4">本组前提 ↗</a><a href="#checklist-record">记录口径 ↗</a></div><div class="case-links"><a class="link-chip" href="#run-dev-01">DEV1 执行记录 ↗</a><a class="link-chip quiet" href="#evidence-dev-01">DEV1 证据 ↗</a><a class="permalink" href="#case-OF01" aria-label="OF01固定链接">#OF01</a></div></div></details>
-<details class="case" id="case-OF02" data-case="OF02" data-state="todo" data-family="OF" data-runs="" data-search="of02 覆盖传输 未执行 mcp工具场景待测 初始明确不存在时传true，发布前由竞争者创建同名目标；另制造访问拒绝/查询错误。 初始缺失仍no-replace，竞争文件不覆盖；错误不当作不存在，不升级成覆盖分支。 尚无通过mcp工具执行本项场景的记录。 按本项操作与完整判据，通过mcp工具在隔离目标上执行并核对响应及副作用。">
+<details class="case" id="case-OF02" data-case="OF02" data-state="todo" data-family="OF" data-runs="" data-search="of02 覆盖传输 未执行 mcp工具场景待测 初始明确不存在时传true，发布前由竞争者创建同名目标；另制造访问拒绝/查询错误。 初始缺失仍no-replace，竞争文件不覆盖；错误不当作不存在，不升级成覆盖分支。 尚无通过mcp工具执行本项场景的记录。 按本项操作与完整判据，通过mcp工具在隔离目标上执行并核对响应及副作用。 需用户配合/设施：受控目标在初始缺失时由竞争者创建 + 错误注入。">
 <summary><span class="case-id">OF02</span><span class="case-title">缺失目标与竞争创建<small>覆盖传输 · MCP工具场景待测</small></span>
 <span class="badge todo">未执行</span><span class="brief">尚无通过MCP工具执行本项场景的记录。</span><span class="expand" aria-hidden="true">＋</span></summary>
 <div class="case-body"><div class="detail-grid">
 <div><h4>测试操作</h4><p>初始明确不存在时传true，发布前由竞争者创建同名目标；另制造访问拒绝/查询错误。</p><h4>通过判据</h4><p>初始缺失仍no-replace，竞争文件不覆盖；错误不当作不存在，不升级成覆盖分支。</p></div>
-<div><h4>已验证到哪里</h4><p>尚无通过MCP工具执行本项场景的记录。</p><p class="scope">证据范围：MCP工具场景待测</p><h4>还需要验证</h4><p>按本项操作与完整判据，通过MCP工具在隔离目标上执行并核对响应及副作用。</p></div>
+<div><h4>已验证到哪里</h4><p>尚无通过MCP工具执行本项场景的记录。</p><p class="scope">证据范围：MCP工具场景待测</p><h4>还需要验证</h4><p>按本项操作与完整判据，通过MCP工具在隔离目标上执行并核对响应及副作用。 需用户配合/设施：受控目标在初始缺失时由竞争者创建 + 错误注入。</p></div>
 </div><div class="case-guidance"><span>清单参考</span><a href="#guide-9-4">本组前提 ↗</a><a href="#checklist-record">记录口径 ↗</a></div><div class="case-links"><span class="muted">暂无执行记录，按右侧判据补测后登记。</span><a class="permalink" href="#case-OF02" aria-label="OF02固定链接">#OF02</a></div></div></details>
-<details class="case" id="case-OF03" data-case="OF03" data-state="todo" data-family="OF" data-runs="" data-search="of03 覆盖传输 未执行 mcp工具场景待测 对初始已有目标，在最终复核前分别替换、删除或改变类型/size/mtime/属性，再查询原操作。 观察到的变化拒绝发布并保留目标；记录这是快照复核，不据一次测试声称最终检查与rename之间无竞争或具cas保证。 linux同时复核原目标摘要，原目标须可读且≤64 mib；摘要后仍不是cas。 尚无通过mcp工具执行本项场景的记录。 按本项操作与完整判据，通过mcp工具在隔离目标上执行并核对响应及副作用。">
+<details class="case" id="case-OF03" data-case="OF03" data-state="todo" data-family="OF" data-runs="" data-search="of03 覆盖传输 未执行 mcp工具场景待测 对初始已有目标，在最终复核前分别替换、删除或改变类型/size/mtime/属性，再查询原操作。 观察到的变化拒绝发布并保留目标；记录这是快照复核，不据一次测试声称最终检查与rename之间无竞争或具cas保证。 linux同时复核原目标摘要，原目标须可读且≤64 mib；摘要后仍不是cas。 尚无通过mcp工具执行本项场景的记录。 按本项操作与完整判据，通过mcp工具在隔离目标上执行并核对响应及副作用。 需用户配合/设施：受控目标在最终复核前替换/删除/改属性。">
 <summary><span class="case-id">OF03</span><span class="case-title">发布前目标变化<small>覆盖传输 · MCP工具场景待测</small></span>
 <span class="badge todo">未执行</span><span class="brief">尚无通过MCP工具执行本项场景的记录。</span><span class="expand" aria-hidden="true">＋</span></summary>
 <div class="case-body"><div class="detail-grid">
 <div><h4>测试操作</h4><p>对初始已有目标，在最终复核前分别替换、删除或改变类型/size/mtime/属性，再查询原操作。</p><h4>通过判据</h4><p>观察到的变化拒绝发布并保留目标；记录这是快照复核，不据一次测试声称最终检查与rename之间无竞争或具CAS保证。 Linux同时复核原目标摘要，原目标须可读且≤64 MiB；摘要后仍不是CAS。</p></div>
-<div><h4>已验证到哪里</h4><p>尚无通过MCP工具执行本项场景的记录。</p><p class="scope">证据范围：MCP工具场景待测</p><h4>还需要验证</h4><p>按本项操作与完整判据，通过MCP工具在隔离目标上执行并核对响应及副作用。</p></div>
+<div><h4>已验证到哪里</h4><p>尚无通过MCP工具执行本项场景的记录。</p><p class="scope">证据范围：MCP工具场景待测</p><h4>还需要验证</h4><p>按本项操作与完整判据，通过MCP工具在隔离目标上执行并核对响应及副作用。 需用户配合/设施：受控目标在最终复核前替换/删除/改属性。</p></div>
 </div><div class="case-guidance"><span>清单参考</span><a href="#guide-9-4">本组前提 ↗</a><a href="#checklist-record">记录口径 ↗</a></div><div class="case-links"><span class="muted">暂无执行记录，按右侧判据补测后登记。</span><a class="permalink" href="#case-OF03" aria-label="OF03固定链接">#OF03</a></div></div></details>
-<details class="case" id="case-OF04" data-case="OF04" data-state="todo" data-family="OF" data-runs="" data-search="of04 覆盖传输 未执行 mcp工具场景待测 windows本地目标设readonly、保留阻止替换的外部句柄、创建多硬链接；另测远端链接/目录/不安全属性。 明确拒绝或报告发布失败；不清目标readonly、不强关句柄、不删除目标后再rename，临时文件只按本次归属处理。 尚无通过mcp工具执行本项场景的记录。 按本项操作与完整判据，通过mcp工具在隔离目标上执行并核对响应及副作用。">
+<details class="case" id="case-OF04" data-case="OF04" data-state="todo" data-family="OF" data-runs="" data-search="of04 覆盖传输 未执行 mcp工具场景待测 windows本地目标设readonly、保留阻止替换的外部句柄、创建多硬链接；另测远端链接/目录/不安全属性。 明确拒绝或报告发布失败；不清目标readonly、不强关句柄、不删除目标后再rename，临时文件只按本次归属处理。 尚无通过mcp工具执行本项场景的记录。 按本项操作与完整判据，通过mcp工具在隔离目标上执行并核对响应及副作用。 需用户配合/设施：windows 只读目标/保留外部句柄/多硬链接。">
 <summary><span class="case-id">OF04</span><span class="case-title">只读、句柄与链接限制<small>覆盖传输 · MCP工具场景待测</small></span>
 <span class="badge todo">未执行</span><span class="brief">尚无通过MCP工具执行本项场景的记录。</span><span class="expand" aria-hidden="true">＋</span></summary>
 <div class="case-body"><div class="detail-grid">
 <div><h4>测试操作</h4><p>Windows本地目标设readonly、保留阻止替换的外部句柄、创建多硬链接；另测远端链接/目录/不安全属性。</p><h4>通过判据</h4><p>明确拒绝或报告发布失败；不清目标readonly、不强关句柄、不删除目标后再rename，临时文件只按本次归属处理。</p></div>
-<div><h4>已验证到哪里</h4><p>尚无通过MCP工具执行本项场景的记录。</p><p class="scope">证据范围：MCP工具场景待测</p><h4>还需要验证</h4><p>按本项操作与完整判据，通过MCP工具在隔离目标上执行并核对响应及副作用。</p></div>
+<div><h4>已验证到哪里</h4><p>尚无通过MCP工具执行本项场景的记录。</p><p class="scope">证据范围：MCP工具场景待测</p><h4>还需要验证</h4><p>按本项操作与完整判据，通过MCP工具在隔离目标上执行并核对响应及副作用。 需用户配合/设施：Windows 只读目标/保留外部句柄/多硬链接。</p></div>
 </div><div class="case-guidance"><span>清单参考</span><a href="#guide-9-4">本组前提 ↗</a><a href="#checklist-record">记录口径 ↗</a></div><div class="case-links"><span class="muted">暂无执行记录，按右侧判据补测后登记。</span><a class="permalink" href="#case-OF04" aria-label="OF04固定链接">#OF04</a></div></div></details>
-<details class="case" id="case-OF05" data-case="OF05" data-state="todo" data-family="OF" data-runs="" data-search="of05 覆盖传输 未执行 mcp工具场景待测 发布前取消或使身份/连接失效；另让发布先准入后再取消并查询。 取消/身份失效先赢保留旧目标，发布已开始按事实报告；迟到取消不删新目标，不将请求取消当回滚。 尚无通过mcp工具执行本项场景的记录。 按本项操作与完整判据，通过mcp工具在隔离目标上执行并核对响应及副作用。">
+<details class="case" id="case-OF05" data-case="OF05" data-state="todo" data-family="OF" data-runs="" data-search="of05 覆盖传输 未执行 mcp工具场景待测 发布前取消或使身份/连接失效；另让发布先准入后再取消并查询。 取消/身份失效先赢保留旧目标，发布已开始按事实报告；迟到取消不删新目标，不将请求取消当回滚。 尚无通过mcp工具执行本项场景的记录。 按本项操作与完整判据，通过mcp工具在隔离目标上执行并核对响应及副作用。 需用户配合/设施：发布前取消/身份失效 + 发布开始后取消。">
 <summary><span class="case-id">OF05</span><span class="case-title">覆盖发布与取消竞争<small>覆盖传输 · MCP工具场景待测</small></span>
 <span class="badge todo">未执行</span><span class="brief">尚无通过MCP工具执行本项场景的记录。</span><span class="expand" aria-hidden="true">＋</span></summary>
 <div class="case-body"><div class="detail-grid">
 <div><h4>测试操作</h4><p>发布前取消或使身份/连接失效；另让发布先准入后再取消并查询。</p><h4>通过判据</h4><p>取消/身份失效先赢保留旧目标，发布已开始按事实报告；迟到取消不删新目标，不将请求取消当回滚。</p></div>
-<div><h4>已验证到哪里</h4><p>尚无通过MCP工具执行本项场景的记录。</p><p class="scope">证据范围：MCP工具场景待测</p><h4>还需要验证</h4><p>按本项操作与完整判据，通过MCP工具在隔离目标上执行并核对响应及副作用。</p></div>
+<div><h4>已验证到哪里</h4><p>尚无通过MCP工具执行本项场景的记录。</p><p class="scope">证据范围：MCP工具场景待测</p><h4>还需要验证</h4><p>按本项操作与完整判据，通过MCP工具在隔离目标上执行并核对响应及副作用。 需用户配合/设施：发布前取消/身份失效 + 发布开始后取消。</p></div>
 </div><div class="case-guidance"><span>清单参考</span><a href="#tool-cancel_transfer"><code>cancel_transfer</code></a><a href="#guide-9-4">本组前提 ↗</a><a href="#checklist-record">记录口径 ↗</a></div><div class="case-links"><span class="muted">暂无执行记录，按右侧判据补测后登记。</span><a class="permalink" href="#case-OF05" aria-label="OF05固定链接">#OF05</a></div></div></details>
-<details class="case" id="case-OF06" data-case="OF06" data-state="todo" data-family="OF" data-runs="" data-search="of06 覆盖传输 未执行 远端sftp 在可控sftp端完成rename后丢失响应，并让临时路径已被消费，再查询原transferid。 不能从temp消失推断发布成功，lost ack按unknown保留；不误删目标、不自动换operationid重传。 尚无远端故障或扩展能力组合的mcp工具测试记录。 在受控服务端执行丢响应或扩展能力组合，并分别核对上传/下载事实。">
+<details class="case" id="case-OF06" data-case="OF06" data-state="todo" data-family="OF" data-runs="" data-search="of06 覆盖传输 未执行 远端sftp 在可控sftp端完成rename后丢失响应，并让临时路径已被消费，再查询原transferid。 不能从temp消失推断发布成功，lost ack按unknown保留；不误删目标、不自动换operationid重传。 尚无远端故障或扩展能力组合的mcp工具测试记录。 在受控服务端执行丢响应或扩展能力组合，并分别核对上传/下载事实。 需用户配合/设施：受控 sftp rename 后丢响应。">
 <summary><span class="case-id">OF06</span><span class="case-title">重命名后响应丢失<small>覆盖传输 · 远端SFTP</small></span>
 <span class="badge todo">未执行</span><span class="brief">尚无远端故障或扩展能力组合的MCP工具测试记录。</span><span class="expand" aria-hidden="true">＋</span></summary>
 <div class="case-body"><div class="detail-grid">
 <div><h4>测试操作</h4><p>在可控SFTP端完成rename后丢失响应，并让临时路径已被消费，再查询原transferId。</p><h4>通过判据</h4><p>不能从temp消失推断发布成功，lost ack按unknown保留；不误删目标、不自动换operationId重传。</p></div>
-<div><h4>已验证到哪里</h4><p>尚无远端故障或扩展能力组合的MCP工具测试记录。</p><p class="scope">证据范围：远端SFTP</p><h4>还需要验证</h4><p>在受控服务端执行丢响应或扩展能力组合，并分别核对上传/下载事实。</p></div>
+<div><h4>已验证到哪里</h4><p>尚无远端故障或扩展能力组合的MCP工具测试记录。</p><p class="scope">证据范围：远端SFTP</p><h4>还需要验证</h4><p>在受控服务端执行丢响应或扩展能力组合，并分别核对上传/下载事实。 需用户配合/设施：受控 SFTP rename 后丢响应。</p></div>
 </div><div class="case-guidance"><span>清单参考</span><a href="#guide-9-4">本组前提 ↗</a><a href="#checklist-record">记录口径 ↗</a></div><div class="case-links"><span class="muted">暂无执行记录，按右侧判据补测后登记。</span><a class="permalink" href="#case-OF06" aria-label="OF06固定链接">#OF06</a></div></div></details>
-<details class="case" id="case-OF07" data-case="OF07" data-state="todo" data-family="OF" data-runs="" data-search="of07 覆盖传输 未执行 远端sftp 已有目标的true分支分别测试posix-rename版本1可用/缺失/版本不匹配；初始缺失分支测试hardlink版本1可用/缺失。 只使用对应支持能力，缺失明确拒绝；不把已存在分支退化为先删再rename，也不把缺失分支改为覆盖式rename。 尚无远端故障或扩展能力组合的mcp工具测试记录。 在受控服务端执行丢响应或扩展能力组合，并分别核对上传/下载事实。">
+<details class="case" id="case-OF07" data-case="OF07" data-state="todo" data-family="OF" data-runs="" data-search="of07 覆盖传输 未执行 远端sftp 已有目标的true分支分别测试posix-rename版本1可用/缺失/版本不匹配；初始缺失分支测试hardlink版本1可用/缺失。 只使用对应支持能力，缺失明确拒绝；不把已存在分支退化为先删再rename，也不把缺失分支改为覆盖式rename。 尚无远端故障或扩展能力组合的mcp工具测试记录。 在受控服务端执行丢响应或扩展能力组合，并分别核对上传/下载事实。 需用户配合/设施：受控 sftp posix-rename/hardlink 能力版本对照。">
 <summary><span class="case-id">OF07</span><span class="case-title">服务端原子发布能力<small>覆盖传输 · 远端SFTP</small></span>
 <span class="badge todo">未执行</span><span class="brief">尚无远端故障或扩展能力组合的MCP工具测试记录。</span><span class="expand" aria-hidden="true">＋</span></summary>
 <div class="case-body"><div class="detail-grid">
 <div><h4>测试操作</h4><p>已有目标的true分支分别测试posix-rename版本1可用/缺失/版本不匹配；初始缺失分支测试hardlink版本1可用/缺失。</p><h4>通过判据</h4><p>只使用对应支持能力，缺失明确拒绝；不把已存在分支退化为先删再rename，也不把缺失分支改为覆盖式rename。</p></div>
-<div><h4>已验证到哪里</h4><p>尚无远端故障或扩展能力组合的MCP工具测试记录。</p><p class="scope">证据范围：远端SFTP</p><h4>还需要验证</h4><p>在受控服务端执行丢响应或扩展能力组合，并分别核对上传/下载事实。</p></div>
+<div><h4>已验证到哪里</h4><p>尚无远端故障或扩展能力组合的MCP工具测试记录。</p><p class="scope">证据范围：远端SFTP</p><h4>还需要验证</h4><p>在受控服务端执行丢响应或扩展能力组合，并分别核对上传/下载事实。 需用户配合/设施：受控 SFTP posix-rename/hardlink 能力版本对照。</p></div>
 </div><div class="case-guidance"><span>清单参考</span><a href="#guide-9-4">本组前提 ↗</a><a href="#checklist-record">记录口径 ↗</a></div><div class="case-links"><span class="muted">暂无执行记录，按右侧判据补测后登记。</span><a class="permalink" href="#case-OF07" aria-label="OF07固定链接">#OF07</a></div></div></details>
 <details class="case" id="case-OF08" data-case="OF08" data-state="partial" data-family="OF" data-runs="DEV1" data-search="of08 覆盖传输 部分验证 真实ssh / 脚本覆盖 原目标设置可辨认acl/属性/执行位，完成明确允许的替换后独立检查新文件属性。 新文件采用temp属性，不自动复制旧acl/执行位；远端新temp仍0600。大小/属性核对不让contentverified变成true，后续执行另行授权。 linux本地新目标同样0600，不继承原执行位。 覆盖后的脚本实际ls -li为-rw-------，通过显式sh执行；没有自动chmod或自动执行。 本地覆盖后的执行位、acl及其他属性组合仍待通过mcp工具核验。 dev1">
 <summary><span class="case-id">OF08</span><span class="case-title">覆盖后的属性与执行位<small>覆盖传输 · 真实SSH / 脚本覆盖</small></span>
@@ -463,19 +463,19 @@ Windows/Linux安全Reader与Writer已实现，macOS Reader/Writer未实现，
 <div><h4>测试操作</h4><p>原目标设置可辨认ACL/属性/执行位，完成明确允许的替换后独立检查新文件属性。</p><h4>通过判据</h4><p>新文件采用temp属性，不自动复制旧ACL/执行位；远端新temp仍0600。大小/属性核对不让contentVerified变成true，后续执行另行授权。 Linux本地新目标同样0600，不继承原执行位。</p></div>
 <div><h4>已验证到哪里</h4><p>覆盖后的脚本实际ls -li为-rw-------，通过显式sh执行；没有自动chmod或自动执行。</p><p class="scope">证据范围：真实SSH / 脚本覆盖</p><h4>还需要验证</h4><p>本地覆盖后的执行位、ACL及其他属性组合仍待通过MCP工具核验。</p></div>
 </div><div class="case-guidance"><span>清单参考</span><a href="#guide-9-4">本组前提 ↗</a><a href="#checklist-record">记录口径 ↗</a></div><div class="case-links"><a class="link-chip" href="#run-dev-01">DEV1 执行记录 ↗</a><a class="link-chip quiet" href="#evidence-dev-01">DEV1 证据 ↗</a><a class="permalink" href="#case-OF08" aria-label="OF08固定链接">#OF08</a></div></div></details>
-<details class="case" id="case-F01" data-case="F01" data-state="todo" data-family="F" data-runs="" data-search="f01 文件边界 未执行 mcp工具场景待测 上传/下载/uart分别按直接路径与x确认流程，覆盖错误transport和旧绑定。 文件与终端状态分开；无目录预共享，首次上传确认、下载直接执行；默认不覆盖，仅安全普通文件。 尚无通过mcp工具执行本项场景的记录。 按本项操作与完整判据，通过mcp工具在隔离目标上执行并核对响应及副作用。">
+<details class="case" id="case-F01" data-case="F01" data-state="todo" data-family="F" data-runs="" data-search="f01 文件边界 未执行 mcp工具场景待测 上传/下载/uart分别按直接路径与x确认流程，覆盖错误transport和旧绑定。 文件与终端状态分开；无目录预共享，首次上传确认、下载直接执行；默认不覆盖，仅安全普通文件。 尚无通过mcp工具执行本项场景的记录。 按本项操作与完整判据，通过mcp工具在隔离目标上执行并核对响应及副作用。 需用户配合/设施：sftp/uart 分别直接路径 + x 确认流程。">
 <summary><span class="case-id">F01</span><span class="case-title">三方向文件传输准入<small>文件边界 · MCP工具场景待测</small></span>
 <span class="badge todo">未执行</span><span class="brief">尚无通过MCP工具执行本项场景的记录。</span><span class="expand" aria-hidden="true">＋</span></summary>
 <div class="case-body"><div class="detail-grid">
 <div><h4>测试操作</h4><p>上传/下载/UART分别按直接路径与X确认流程，覆盖错误transport和旧绑定。</p><h4>通过判据</h4><p>文件与终端状态分开；无目录预共享，首次上传确认、下载直接执行；默认不覆盖，仅安全普通文件。</p></div>
-<div><h4>已验证到哪里</h4><p>尚无通过MCP工具执行本项场景的记录。</p><p class="scope">证据范围：MCP工具场景待测</p><h4>还需要验证</h4><p>按本项操作与完整判据，通过MCP工具在隔离目标上执行并核对响应及副作用。</p></div>
+<div><h4>已验证到哪里</h4><p>尚无通过MCP工具执行本项场景的记录。</p><p class="scope">证据范围：MCP工具场景待测</p><h4>还需要验证</h4><p>按本项操作与完整判据，通过MCP工具在隔离目标上执行并核对响应及副作用。 需用户配合/设施：SFTP/UART 分别直接路径 + X 确认流程。</p></div>
 </div><div class="case-guidance"><span>清单参考</span><a href="#guide-9">本组前提 ↗</a><a href="#checklist-record">记录口径 ↗</a></div><div class="case-links"><span class="muted">暂无执行记录，按右侧判据补测后登记。</span><a class="permalink" href="#case-F01" aria-label="F01固定链接">#F01</a></div></div></details>
-<details class="case" id="case-F02" data-case="F02" data-state="todo" data-family="F" data-runs="" data-search="f02 文件边界 未执行 mcp工具场景待测 相对路径、链接/重解析点、多硬链、目录/设备对象、目标替换及并发发布；linux源变更/短读单列。 绝对路径/固定句柄/文件类型检查拒绝不安全源；no-replace保留竞争目标，true按可信写入者前提，不宣称cas或旧授权根隔离。 尚无通过mcp工具执行本项场景的记录。 按本项操作与完整判据，通过mcp工具在隔离目标上执行并核对响应及副作用。">
+<details class="case" id="case-F02" data-case="F02" data-state="todo" data-family="F" data-runs="" data-search="f02 文件边界 未执行 mcp工具场景待测 相对路径、链接/重解析点、多硬链、目录/设备对象、目标替换及并发发布；linux源变更/短读单列。 绝对路径/固定句柄/文件类型检查拒绝不安全源；no-replace保留竞争目标，true按可信写入者前提，不宣称cas或旧授权根隔离。 尚无通过mcp工具执行本项场景的记录。 按本项操作与完整判据，通过mcp工具在隔离目标上执行并核对响应及副作用。 需用户配合/设施：受控路径/链接/多硬链/设备对象/目标替换。">
 <summary><span class="case-id">F02</span><span class="case-title">文件类型与路径安全<small>文件边界 · MCP工具场景待测</small></span>
 <span class="badge todo">未执行</span><span class="brief">尚无通过MCP工具执行本项场景的记录。</span><span class="expand" aria-hidden="true">＋</span></summary>
 <div class="case-body"><div class="detail-grid">
 <div><h4>测试操作</h4><p>相对路径、链接/重解析点、多硬链、目录/设备对象、目标替换及并发发布；Linux源变更/短读单列。</p><h4>通过判据</h4><p>绝对路径/固定句柄/文件类型检查拒绝不安全源；no-replace保留竞争目标，true按可信写入者前提，不宣称CAS或旧授权根隔离。</p></div>
-<div><h4>已验证到哪里</h4><p>尚无通过MCP工具执行本项场景的记录。</p><p class="scope">证据范围：MCP工具场景待测</p><h4>还需要验证</h4><p>按本项操作与完整判据，通过MCP工具在隔离目标上执行并核对响应及副作用。</p></div>
+<div><h4>已验证到哪里</h4><p>尚无通过MCP工具执行本项场景的记录。</p><p class="scope">证据范围：MCP工具场景待测</p><h4>还需要验证</h4><p>按本项操作与完整判据，通过MCP工具在隔离目标上执行并核对响应及副作用。 需用户配合/设施：受控路径/链接/多硬链/设备对象/目标替换。</p></div>
 </div><div class="case-guidance"><span>清单参考</span><a href="#tool-upload_file"><code>upload_file</code></a><a href="#guide-9">本组前提 ↗</a><a href="#checklist-record">记录口径 ↗</a></div><div class="case-links"><span class="muted">暂无执行记录，按右侧判据补测后登记。</span><a class="permalink" href="#case-F02" aria-label="F02固定链接">#F02</a></div></div></details>
 <details class="case" id="case-F03" data-case="F03" data-state="partial" data-family="F" data-runs="DEV1 MCP1114" data-search="f03 文件边界 部分验证 真实ssh / 同会话传输竞争 精确重试、取消、身份失效、断连、磁盘满、无进度、总期限及64mib边界；使用隔离设施。 不重传/覆盖，原id保留未知；临时文件按归属处理，资源有界；勿在用户实例耗尽额度/磁盘。 mcp1114：上传进行中发起下载返回 file_transfer_busy；/tmp 目标返回 transfer_unsafe_remote_root。 资源上限与恢复路径未测。 dev1 mcp1114">
 <summary><span class="case-id">F03</span><span class="case-title">传输故障与资源边界<small>文件边界 · 真实SSH / 同会话传输竞争</small></span>
@@ -568,19 +568,19 @@ Windows/Linux安全Reader与Writer已实现，macOS Reader/Writer未实现，
 <div><h4>测试操作</h4><p>同operationId跨interact/start_task或改actions复用，与原请求精确重试对照。</p><h4>通过判据</h4><p>新意图冲突零新增输入，精确重试同事实/无副作用；不能靠换inputToken再执行。</p></div>
 <div><h4>已验证到哪里</h4><p>MCP1114：interact_terminal 用过的 operationId 被 start_task 接受并实际输入 `echo SHOULD-NOT-RUN-OPID-REUSE`。</p><p class="scope">证据范围：本机MCP工具调用</p><h4>还需要验证</h4><p>跨接口 operationId 复用未被拒绝；影响幂等边界，需修复或明确契约。</p></div>
 </div><div class="case-guidance"><span>清单参考</span><a href="#tool-interact_terminal"><code>interact_terminal</code></a><a href="#tool-start_task"><code>start_task</code></a><a href="#tool-stop_task"><code>stop_task</code></a><a href="#guide-10">本组前提 ↗</a><a href="#checklist-record">记录口径 ↗</a></div><div class="case-links"><a class="link-chip" href="#run-command-01">CMD1 执行记录 ↗</a><a class="link-chip" href="#run-s15-fix">S15FIX 执行记录 ↗</a><a class="link-chip" href="#run-failed-retest-02">RETEST2 执行记录 ↗</a><a class="link-chip" href="#run-mcp-20261114">MCP1114 执行记录 ↗</a><a class="link-chip quiet" href="#evidence-command-01">CMD1 证据 ↗</a><a class="link-chip quiet" href="#evidence-s15-fix">S15FIX 证据 ↗</a><a class="link-chip quiet" href="#evidence-failed-retest-02">RETEST2 证据 ↗</a><a class="link-chip quiet" href="#evidence-mcp-20261114">MCP1114 证据 ↗</a><a class="link-chip warm" href="#issue-cross-api-operation">S15 · 跨工具操作ID未拒绝 ↗</a><a class="link-chip warm" href="#issue-opid-reuse-1114">MCP1114 · 跨接口 operationId 复用未被拒绝 ↗</a><a class="permalink" href="#case-S15" aria-label="S15固定链接">#S15</a></div></div></details>
-<details class="case" id="case-C04" data-case="C04" data-state="todo" data-family="C" data-runs="" data-search="c04 清空与权限 未执行 — 会话a任务/等待期间，会话b撤权、恢复或新连接默认绑定。 只改相应绑定/修订，a活动请求不因无关b改变误失效；全局停用另计。 尚无此用例完整执行证据。 按清单执行正向、负向与恢复判据，并取得对应环境证据。">
+<details class="case" id="case-C04" data-case="C04" data-state="todo" data-family="C" data-runs="" data-search="c04 清空与权限 未执行 — 会话a任务/等待期间，会话b撤权、恢复或新连接默认绑定。 只改相应绑定/修订，a活动请求不因无关b改变误失效；全局停用另计。 尚无此用例完整执行证据。 按清单执行正向、负向与恢复判据，并取得对应环境证据。 需用户配合/设施：gui 跨会话撤权/恢复；需你在应用里操作。">
 <summary><span class="case-id">C04</span><span class="case-title">跨会话授权互不干扰<small>清空与权限 · —</small></span>
 <span class="badge todo">未执行</span><span class="brief">尚无此用例完整执行证据。</span><span class="expand" aria-hidden="true">＋</span></summary>
 <div class="case-body"><div class="detail-grid">
 <div><h4>测试操作</h4><p>会话A任务/等待期间，会话B撤权、恢复或新连接默认绑定。</p><h4>通过判据</h4><p>只改相应绑定/修订，A活动请求不因无关B改变误失效；全局停用另计。</p></div>
-<div><h4>已验证到哪里</h4><p>尚无此用例完整执行证据。</p><p class="scope">证据范围：—</p><h4>还需要验证</h4><p>按清单执行正向、负向与恢复判据，并取得对应环境证据。</p></div>
+<div><h4>已验证到哪里</h4><p>尚无此用例完整执行证据。</p><p class="scope">证据范围：—</p><h4>还需要验证</h4><p>按清单执行正向、负向与恢复判据，并取得对应环境证据。 需用户配合/设施：GUI 跨会话撤权/恢复；需你在应用里操作。</p></div>
 </div><div class="case-guidance"><span>清单参考</span><a href="#tool-list_sessions"><code>list_sessions</code></a><a href="#tool-clear_terminal"><code>clear_terminal</code></a><a href="#guide-10">本组前提 ↗</a><a href="#checklist-record">记录口径 ↗</a></div><div class="case-links"><span class="muted">暂无执行记录，按右侧判据补测后登记。</span><a class="permalink" href="#case-C04" aria-label="C04固定链接">#C04</a></div></div></details>
-<details class="case" id="case-C05" data-case="C05" data-state="todo" data-family="C" data-runs="" data-search="c05 清空与权限 未执行 — 新就绪四权限、同绑定撤权后刷新、手动重连新绑定、旧窗口/epoch。 同绑定不恢复撤权，新绑定按默认规则，旧请求拒绝，提权勾选不代表adapter可用。 尚无此用例完整执行证据。 按清单执行正向、负向与恢复判据，并取得对应环境证据。">
+<details class="case" id="case-C05" data-case="C05" data-state="todo" data-family="C" data-runs="" data-search="c05 清空与权限 未执行 — 新就绪四权限、同绑定撤权后刷新、手动重连新绑定、旧窗口/epoch。 同绑定不恢复撤权，新绑定按默认规则，旧请求拒绝，提权勾选不代表adapter可用。 尚无此用例完整执行证据。 按清单执行正向、负向与恢复判据，并取得对应环境证据。 需用户配合/设施：gui 重连默认权限/新绑定；需你在应用里操作。">
 <summary><span class="case-id">C05</span><span class="case-title">重连默认权限与旧绑定<small>清空与权限 · —</small></span>
 <span class="badge todo">未执行</span><span class="brief">尚无此用例完整执行证据。</span><span class="expand" aria-hidden="true">＋</span></summary>
 <div class="case-body"><div class="detail-grid">
 <div><h4>测试操作</h4><p>新就绪四权限、同绑定撤权后刷新、手动重连新绑定、旧窗口/epoch。</p><h4>通过判据</h4><p>同绑定不恢复撤权，新绑定按默认规则，旧请求拒绝，提权勾选不代表adapter可用。</p></div>
-<div><h4>已验证到哪里</h4><p>尚无此用例完整执行证据。</p><p class="scope">证据范围：—</p><h4>还需要验证</h4><p>按清单执行正向、负向与恢复判据，并取得对应环境证据。</p></div>
+<div><h4>已验证到哪里</h4><p>尚无此用例完整执行证据。</p><p class="scope">证据范围：—</p><h4>还需要验证</h4><p>按清单执行正向、负向与恢复判据，并取得对应环境证据。 需用户配合/设施：GUI 重连默认权限/新绑定；需你在应用里操作。</p></div>
 </div><div class="case-guidance"><span>清单参考</span><a href="#tool-list_sessions"><code>list_sessions</code></a><a href="#guide-10">本组前提 ↗</a><a href="#checklist-record">记录口径 ↗</a></div><div class="case-links"><span class="muted">暂无执行记录，按右侧判据补测后登记。</span><a class="permalink" href="#case-C05" aria-label="C05固定链接">#C05</a></div></div></details>
 <details class="case" id="case-H01" data-case="H01" data-state="partial" data-family="H" data-runs="R01 R02" data-search="h01 历史录制 部分验证 本机 手动开始/停止两段录制，启用mcp后分页list_captures；空目录对照。 已有录制直接可见，无逐条授权；高水位/完整性准确，不自动开始录制。 list_captures空列表可读；未自动启动录制。 手动产生录制后的正向列表、分页和高水位。 r01 r02">
 <summary><span class="case-id">H01</span><span class="case-title">录制目录与分页<small>历史录制 · 本机</small></span>
@@ -596,26 +596,26 @@ Windows/Linux安全Reader与Writer已实现，macOS Reader/Writer未实现，
 <div><h4>测试操作</h4><p>read_history小预算连续读取重复/空行/中文，与实际存储格式/原始字节证据对照。</p><h4>通过判据</h4><p>精确拼接，文本/原始字节不混同；缺口、损坏、截断显式报告。</p></div>
 <div><h4>已验证到哪里</h4><p>未知captureId拒绝有证据。</p><p class="scope">证据范围：本机</p><h4>还需要验证</h4><p>真实录制内容、连续分页、中文/缺口/损坏正向对照。</p></div>
 </div><div class="case-guidance"><span>清单参考</span><a href="#tool-read_history"><code>read_history</code></a><a href="#guide-10">本组前提 ↗</a><a href="#checklist-record">记录口径 ↗</a></div><div class="case-links"><a class="link-chip" href="#run-01">R01 执行记录 ↗</a><a class="link-chip quiet" href="#evidence-r01">R01 证据 ↗</a><a class="permalink" href="#case-H02" aria-label="H02固定链接">#H02</a></div></div></details>
-<details class="case" id="case-H03" data-case="H03" data-state="todo" data-family="H" data-runs="" data-search="h03 历史录制 未执行 — search_history text/raw_bytes、中文/大小写/跨页/重叠及maxmatches/cursor。 按实际schema与匹配规则核对源位置；续页/失效正确，伪id不代替正向。 尚无此用例完整执行证据。 按清单执行正向、负向与恢复判据，并取得对应环境证据。">
+<details class="case" id="case-H03" data-case="H03" data-state="todo" data-family="H" data-runs="" data-search="h03 历史录制 未执行 — search_history text/raw_bytes、中文/大小写/跨页/重叠及maxmatches/cursor。 按实际schema与匹配规则核对源位置；续页/失效正确，伪id不代替正向。 尚无此用例完整执行证据。 按清单执行正向、负向与恢复判据，并取得对应环境证据。 需用户配合/设施：应用内先开启录制（当前 list_captures 为空）。">
 <summary><span class="case-id">H03</span><span class="case-title">录制搜索与续页<small>历史录制 · —</small></span>
 <span class="badge todo">未执行</span><span class="brief">尚无此用例完整执行证据。</span><span class="expand" aria-hidden="true">＋</span></summary>
 <div class="case-body"><div class="detail-grid">
 <div><h4>测试操作</h4><p>search_history text/raw_bytes、中文/大小写/跨页/重叠及maxMatches/cursor。</p><h4>通过判据</h4><p>按实际Schema与匹配规则核对源位置；续页/失效正确，伪ID不代替正向。</p></div>
-<div><h4>已验证到哪里</h4><p>尚无此用例完整执行证据。</p><p class="scope">证据范围：—</p><h4>还需要验证</h4><p>按清单执行正向、负向与恢复判据，并取得对应环境证据。</p></div>
+<div><h4>已验证到哪里</h4><p>尚无此用例完整执行证据。</p><p class="scope">证据范围：—</p><h4>还需要验证</h4><p>按清单执行正向、负向与恢复判据，并取得对应环境证据。 需用户配合/设施：应用内先开启录制（当前 list_captures 为空）。</p></div>
 </div><div class="case-guidance"><span>清单参考</span><a href="#tool-search_history"><code>search_history</code></a><a href="#guide-10">本组前提 ↗</a><a href="#checklist-record">记录口径 ↗</a></div><div class="case-links"><span class="muted">暂无执行记录，按右侧判据补测后登记。</span><a class="permalink" href="#case-H03" aria-label="H03固定链接">#H03</a></div></div></details>
-<details class="case" id="case-H04" data-case="H04" data-state="todo" data-family="H" data-runs="" data-search="h04 历史录制 未执行 — 持续录制时取得高水位，追加内容后继续原查询并另起查询。 原查询范围稳定，新内容按新基线；不重读漏读，不以空页当结束。 尚无此用例完整执行证据。 按清单执行正向、负向与恢复判据，并取得对应环境证据。">
+<details class="case" id="case-H04" data-case="H04" data-state="todo" data-family="H" data-runs="" data-search="h04 历史录制 未执行 — 持续录制时取得高水位，追加内容后继续原查询并另起查询。 原查询范围稳定，新内容按新基线；不重读漏读，不以空页当结束。 尚无此用例完整执行证据。 按清单执行正向、负向与恢复判据，并取得对应环境证据。 需用户配合/设施：应用内持续录制中查询高水位。">
 <summary><span class="case-id">H04</span><span class="case-title">持续录制的查询高水位<small>历史录制 · —</small></span>
 <span class="badge todo">未执行</span><span class="brief">尚无此用例完整执行证据。</span><span class="expand" aria-hidden="true">＋</span></summary>
 <div class="case-body"><div class="detail-grid">
 <div><h4>测试操作</h4><p>持续录制时取得高水位，追加内容后继续原查询并另起查询。</p><h4>通过判据</h4><p>原查询范围稳定，新内容按新基线；不重读漏读，不以空页当结束。</p></div>
-<div><h4>已验证到哪里</h4><p>尚无此用例完整执行证据。</p><p class="scope">证据范围：—</p><h4>还需要验证</h4><p>按清单执行正向、负向与恢复判据，并取得对应环境证据。</p></div>
+<div><h4>已验证到哪里</h4><p>尚无此用例完整执行证据。</p><p class="scope">证据范围：—</p><h4>还需要验证</h4><p>按清单执行正向、负向与恢复判据，并取得对应环境证据。 需用户配合/设施：应用内持续录制中查询高水位。</p></div>
 </div><div class="case-guidance"><span>清单参考</span><a href="#tool-list_captures"><code>list_captures</code></a><a href="#tool-read_history"><code>read_history</code></a><a href="#tool-search_history"><code>search_history</code></a><a href="#guide-10">本组前提 ↗</a><a href="#checklist-record">记录口径 ↗</a></div><div class="case-links"><span class="muted">暂无执行记录，按右侧判据补测后登记。</span><a class="permalink" href="#case-H04" aria-label="H04固定链接">#H04</a></div></div></details>
-<details class="case" id="case-H05" data-case="H05" data-state="todo" data-family="H" data-runs="" data-search="h05 历史录制 未执行 — 关闭终端后读录制；隔离样本停止/删除录制或清除导入资源，重用旧游标。 关闭终端不删录制，来源失效明确、不越界、不自动重连设备。 尚无此用例完整执行证据。 按清单执行正向、负向与恢复判据，并取得对应环境证据。">
+<details class="case" id="case-H05" data-case="H05" data-state="todo" data-family="H" data-runs="" data-search="h05 历史录制 未执行 — 关闭终端后读录制；隔离样本停止/删除录制或清除导入资源，重用旧游标。 关闭终端不删录制，来源失效明确、不越界、不自动重连设备。 尚无此用例完整执行证据。 按清单执行正向、负向与恢复判据，并取得对应环境证据。 需用户配合/设施：关闭终端后读录制 / 停用删除录制。">
 <summary><span class="case-id">H05</span><span class="case-title">录制与资源生命周期<small>历史录制 · —</small></span>
 <span class="badge todo">未执行</span><span class="brief">尚无此用例完整执行证据。</span><span class="expand" aria-hidden="true">＋</span></summary>
 <div class="case-body"><div class="detail-grid">
 <div><h4>测试操作</h4><p>关闭终端后读录制；隔离样本停止/删除录制或清除导入资源，重用旧游标。</p><h4>通过判据</h4><p>关闭终端不删录制，来源失效明确、不越界、不自动重连设备。</p></div>
-<div><h4>已验证到哪里</h4><p>尚无此用例完整执行证据。</p><p class="scope">证据范围：—</p><h4>还需要验证</h4><p>按清单执行正向、负向与恢复判据，并取得对应环境证据。</p></div>
+<div><h4>已验证到哪里</h4><p>尚无此用例完整执行证据。</p><p class="scope">证据范围：—</p><h4>还需要验证</h4><p>按清单执行正向、负向与恢复判据，并取得对应环境证据。 需用户配合/设施：关闭终端后读录制 / 停用删除录制。</p></div>
 </div><div class="case-guidance"><span>清单参考</span><a href="#tool-list_captures"><code>list_captures</code></a><a href="#tool-read_history"><code>read_history</code></a><a href="#tool-search_history"><code>search_history</code></a><a href="#guide-10">本组前提 ↗</a><a href="#checklist-record">记录口径 ↗</a></div><div class="case-links"><span class="muted">暂无执行记录，按右侧判据补测后登记。</span><a class="permalink" href="#case-H05" aria-label="H05固定链接">#H05</a></div></div></details>
 <details class="case" id="case-X01" data-case="X01" data-state="partial" data-family="X" data-runs="R01 FILE1 MCP1114" data-search="x01 上传确认 部分验证 ssh / uart确认阶段 未记忆路径首次上传，核对路径/目标/协议/覆盖，再显式拒绝confirmed=false。 confirmation_required零payload，declined不发送；源尚未校验不能说已校验。 本轮通过：mcp1114：首次上传返回 confirmation_required；confirmed=false 得到 state=declined 且明确未发送文件。 未验证过期令牌与额度。 r01 file1 mcp1114">
 <summary><span class="case-id">X01</span><span class="case-title">首次上传确认与拒绝<small>上传确认 · SSH / UART确认阶段</small></span>
@@ -645,19 +645,19 @@ Windows/Linux安全Reader与Writer已实现，macOS Reader/Writer未实现，
 <div><h4>测试操作</h4><p>改变源/目标端点/路径/协议/覆盖；同ID改参、错token、只传token或confirmed。</p><h4>通过判据</h4><p>新组合重新确认，旧ID冲突，凭据绑定和成对参数拒绝正确；记忆不升级覆盖。</p></div>
 <div><h4>已验证到哪里</h4><p>尚无此用例完整执行证据。 已受理operationId改变overwrite参数时，按文件接口契约返回TARGET_OPERATION_CONFLICT。</p><p class="scope">证据范围：—</p><h4>还需要验证</h4><p>按清单执行正向、负向与恢复判据，并取得对应环境证据。</p></div>
 </div><div class="case-guidance"><span>清单参考</span><a href="#tool-upload_file"><code>upload_file</code></a><a href="#guide-10">本组前提 ↗</a><a href="#checklist-record">记录口径 ↗</a></div><div class="case-links"><a class="link-chip" href="#run-dev-01">DEV1 执行记录 ↗</a><a class="link-chip quiet" href="#evidence-dev-01">DEV1 证据 ↗</a><a class="permalink" href="#case-X04" aria-label="X04固定链接">#X04</a></div></div></details>
-<details class="case" id="case-X05" data-case="X05" data-state="todo" data-family="X" data-runs="" data-search="x05 上传确认 未执行 — 隔离实例确认5分钟、待确认64项、记忆512项；跨实例清除后尝试旧token/组合。 期限/额度/清除代次按契约，不能用重试续期；不在用户实例占满额度。 尚无此用例完整执行证据。 按清单执行正向、负向与恢复判据，并取得对应环境证据。">
+<details class="case" id="case-X05" data-case="X05" data-state="todo" data-family="X" data-runs="" data-search="x05 上传确认 未执行 — 隔离实例确认5分钟、待确认64项、记忆512项；跨实例清除后尝试旧token/组合。 期限/额度/清除代次按契约，不能用重试续期；不在用户实例占满额度。 尚无此用例完整执行证据。 按清单执行正向、负向与恢复判据，并取得对应环境证据。 需用户配合/设施：确认期限/额度/清除需 gui 调 token 库。">
 <summary><span class="case-id">X05</span><span class="case-title">确认期限、额度与清除<small>上传确认 · —</small></span>
 <span class="badge todo">未执行</span><span class="brief">尚无此用例完整执行证据。</span><span class="expand" aria-hidden="true">＋</span></summary>
 <div class="case-body"><div class="detail-grid">
 <div><h4>测试操作</h4><p>隔离实例确认5分钟、待确认64项、记忆512项；跨实例清除后尝试旧token/组合。</p><h4>通过判据</h4><p>期限/额度/清除代次按契约，不能用重试续期；不在用户实例占满额度。</p></div>
-<div><h4>已验证到哪里</h4><p>尚无此用例完整执行证据。</p><p class="scope">证据范围：—</p><h4>还需要验证</h4><p>按清单执行正向、负向与恢复判据，并取得对应环境证据。</p></div>
+<div><h4>已验证到哪里</h4><p>尚无此用例完整执行证据。</p><p class="scope">证据范围：—</p><h4>还需要验证</h4><p>按清单执行正向、负向与恢复判据，并取得对应环境证据。 需用户配合/设施：确认期限/额度/清除需 GUI 调 token 库。</p></div>
 </div><div class="case-guidance"><span>清单参考</span><a href="#tool-upload_file"><code>upload_file</code></a><a href="#guide-10">本组前提 ↗</a><a href="#checklist-record">记录口径 ↗</a></div><div class="case-links"><span class="muted">暂无执行记录，按右侧判据补测后登记。</span><a class="permalink" href="#case-X05" aria-label="X05固定链接">#X05</a></div></div></details>
-<details class="case" id="case-X06" data-case="X06" data-state="todo" data-family="X" data-runs="" data-search="x06 上传确认 未执行 — 同身份重启与重置令牌分别复测；重连/换代后旧待确认。 持久记忆按组合保留，旧运行期/旧身份待确认失效，已受理精确重试优先事实不重传。 尚无此用例完整执行证据。 按清单执行正向、负向与恢复判据，并取得对应环境证据。">
+<details class="case" id="case-X06" data-case="X06" data-state="todo" data-family="X" data-runs="" data-search="x06 上传确认 未执行 — 同身份重启与重置令牌分别复测；重连/换代后旧待确认。 持久记忆按组合保留，旧运行期/旧身份待确认失效，已受理精确重试优先事实不重传。 尚无此用例完整执行证据。 按清单执行正向、负向与恢复判据，并取得对应环境证据。 需用户配合/设施：同身份重启/令牌重置需 gui + 重启。">
 <summary><span class="case-id">X06</span><span class="case-title">跨重启与身份换代<small>上传确认 · —</small></span>
 <span class="badge todo">未执行</span><span class="brief">尚无此用例完整执行证据。</span><span class="expand" aria-hidden="true">＋</span></summary>
 <div class="case-body"><div class="detail-grid">
 <div><h4>测试操作</h4><p>同身份重启与重置令牌分别复测；重连/换代后旧待确认。</p><h4>通过判据</h4><p>持久记忆按组合保留，旧运行期/旧身份待确认失效，已受理精确重试优先事实不重传。</p></div>
-<div><h4>已验证到哪里</h4><p>尚无此用例完整执行证据。</p><p class="scope">证据范围：—</p><h4>还需要验证</h4><p>按清单执行正向、负向与恢复判据，并取得对应环境证据。</p></div>
+<div><h4>已验证到哪里</h4><p>尚无此用例完整执行证据。</p><p class="scope">证据范围：—</p><h4>还需要验证</h4><p>按清单执行正向、负向与恢复判据，并取得对应环境证据。 需用户配合/设施：同身份重启/令牌重置需 GUI + 重启。</p></div>
 </div><div class="case-guidance"><span>清单参考</span><a href="#tool-upload_file"><code>upload_file</code></a><a href="#guide-10">本组前提 ↗</a><a href="#checklist-record">记录口径 ↗</a></div><div class="case-links"><span class="muted">暂无执行记录，按右侧判据补测后登记。</span><a class="permalink" href="#case-X06" aria-label="X06固定链接">#X06</a></div></div></details>
 <details class="case" id="case-V01" data-case="V01" data-state="partial" data-family="V" data-runs="R02 R04 MCP1114" data-search="v01 参数与提权 部分验证 本机 隔离终端1/64/65动作、16384文本字节/65536编码字节、c0/del、独立release限制。 合法边界可核对字节，非法零新增输入/无半行；65拒绝不代替64正向。 mcp1114：65 个 action 返回 invalid_argument，未产生输入。 64 动作与字节上限未测。 r02 r04 mcp1114">
 <summary><span class="case-id">V01</span><span class="case-title">输入参数与字节预算<small>参数与提权 · 本机</small></span>
@@ -666,12 +666,12 @@ Windows/Linux安全Reader与Writer已实现，macOS Reader/Writer未实现，
 <div><h4>测试操作</h4><p>隔离终端1/64/65动作、16384文本字节/65536编码字节、C0/DEL、独立release限制。</p><h4>通过判据</h4><p>合法边界可核对字节，非法零新增输入/无半行；65拒绝不代替64正向。</p></div>
 <div><h4>已验证到哪里</h4><p>MCP1114：65 个 action 返回 INVALID_ARGUMENT，未产生输入。</p><p class="scope">证据范围：本机</p><h4>还需要验证</h4><p>64 动作与字节上限未测。</p></div>
 </div><div class="case-guidance"><span>清单参考</span><a href="#tool-interact_terminal"><code>interact_terminal</code></a><a href="#tool-start_task"><code>start_task</code></a><a href="#guide-10">本组前提 ↗</a><a href="#checklist-record">记录口径 ↗</a></div><div class="case-links"><a class="link-chip" href="#run-02">R02 执行记录 ↗</a><a class="link-chip" href="#run-04">R04 执行记录 ↗</a><a class="link-chip" href="#run-mcp-20261114">MCP1114 执行记录 ↗</a><a class="link-chip quiet" href="#evidence-r02">R02 证据 ↗</a><a class="link-chip quiet" href="#evidence-r04">R04 证据 ↗</a><a class="link-chip quiet" href="#evidence-mcp-20261114">MCP1114 证据 ↗</a><a class="permalink" href="#case-V01" aria-label="V01固定链接">#V01</a></div></div></details>
-<details class="case" id="case-V02" data-case="V02" data-state="todo" data-family="V" data-runs="" data-search="v02 参数与提权 未执行 — 两代原始http未知字段/工具、退役十工具、旧grant参数、畸形json和预算。 协议与业务错误分开，无旧工具转发/凭据泄漏；客户端本地拒参不冒充服务端验证。 尚无此用例完整执行证据。 按清单执行正向、负向与恢复判据，并取得对应环境证据。">
+<details class="case" id="case-V02" data-case="V02" data-state="partial" data-family="V" data-runs="" data-search="v02 参数与提权 部分验证 — 两代原始http未知字段/工具、退役十工具、旧grant参数、畸形json和预算。 协议与业务错误分开，无旧工具转发/凭据泄漏；客户端本地拒参不冒充服务端验证。 mcp1114b：真实调用验证服务端对非法参数返回干净 invalid_argument 且无凭据/请求体泄漏——limit=-5、maxmatches=9999、scope=invalid 均被拒，错误响应不含 token/host/origin。 退役工具名/旧 grant 参数/两代原始 http 的负向对照需原始客户端，agent 工具集未暴露这些入口；未做跨代报文互操作对照。">
 <summary><span class="case-id">V02</span><span class="case-title">协议错误与退役入口<small>参数与提权 · —</small></span>
-<span class="badge todo">未执行</span><span class="brief">尚无此用例完整执行证据。</span><span class="expand" aria-hidden="true">＋</span></summary>
+<span class="badge partial">部分验证</span><span class="brief">MCP1114b：真实调用验证服务端对非法参数返回干净 INVALID_ARGUMENT 且无凭据/请求体泄漏——limit=-5、maxMatches=9999、scope=invalid 均被拒，错误响应不含 token/Host/Origin。</span><span class="expand" aria-hidden="true">＋</span></summary>
 <div class="case-body"><div class="detail-grid">
 <div><h4>测试操作</h4><p>两代原始HTTP未知字段/工具、退役十工具、旧grant参数、畸形JSON和预算。</p><h4>通过判据</h4><p>协议与业务错误分开，无旧工具转发/凭据泄漏；客户端本地拒参不冒充服务端验证。</p></div>
-<div><h4>已验证到哪里</h4><p>尚无此用例完整执行证据。</p><p class="scope">证据范围：—</p><h4>还需要验证</h4><p>按清单执行正向、负向与恢复判据，并取得对应环境证据。</p></div>
+<div><h4>已验证到哪里</h4><p>MCP1114b：真实调用验证服务端对非法参数返回干净 INVALID_ARGUMENT 且无凭据/请求体泄漏——limit=-5、maxMatches=9999、scope=invalid 均被拒，错误响应不含 token/Host/Origin。</p><p class="scope">证据范围：—</p><h4>还需要验证</h4><p>退役工具名/旧 grant 参数/两代原始 HTTP 的负向对照需原始客户端，Agent 工具集未暴露这些入口；未做跨代报文互操作对照。</p></div>
 </div><div class="case-guidance"><span>清单参考</span><a href="#tool-read_history"><code>read_history</code></a><a href="#tool-search_history"><code>search_history</code></a><a href="#guide-10">本组前提 ↗</a><a href="#checklist-record">记录口径 ↗</a></div><div class="case-links"><span class="muted">暂无执行记录，按右侧判据补测后登记。</span><a class="permalink" href="#case-V02" aria-label="V02固定链接">#V02</a></div></div></details>
 <details class="case" id="case-V03" data-case="V03" data-state="partial" data-family="V" data-runs="R01 MCP1114" data-search="v03 参数与提权 部分验证 本机 / uart只读 提权adapter不可用、未验证目标、缺权限对照；已有口令提示只观察。 能力/错误码如实；不读出/回填/自动发送密码，默认勾选不能绕过条件。 本轮通过：mcp1114：request_elevation 返回 elevation_adapter_unavailable，未尝试取密。 未覆盖 su 路径。 r01 mcp1114">
 <summary><span class="case-id">V03</span><span class="case-title">提权能力与拒绝边界<small>参数与提权 · 本机 / UART只读</small></span>
@@ -735,7 +735,7 @@ Windows/Linux安全Reader与Writer已实现，macOS Reader/Writer未实现，
 <details class="related"><summary>关联用例 · 40</summary><div class="case-chips"><a href="#case-A01">A01</a><a href="#case-A03">A03</a><a href="#case-A04">A04</a><a href="#case-A05">A05</a><a href="#case-A06">A06</a><a href="#case-S01">S01</a><a href="#case-S02">S02</a><a href="#case-S03">S03</a><a href="#case-S04">S04</a><a href="#case-S06">S06</a><a href="#case-S07">S07</a><a href="#case-U02">U02</a><a href="#case-U03">U03</a><a href="#case-C01">C01</a><a href="#case-B01">B01</a><a href="#case-P01">P01</a><a href="#case-SF01">SF01</a><a href="#case-SF02">SF02</a><a href="#case-SF03">SF03</a><a href="#case-DF01">DF01</a><a href="#case-DF02">DF02</a><a href="#case-DF03">DF03</a><a href="#case-F03">F03</a><a href="#case-F04">F04</a><a href="#case-A10">A10</a><a href="#case-A11">A11</a><a href="#case-A12">A12</a><a href="#case-A13">A13</a><a href="#case-A14">A14</a><a href="#case-S10">S10</a><a href="#case-S11">S11</a><a href="#case-S12">S12</a><a href="#case-S13">S13</a><a href="#case-S14">S14</a><a href="#case-S15">S15</a><a href="#case-X01">X01</a><a href="#case-X02">X02</a><a href="#case-X03">X03</a><a href="#case-V01">V01</a><a href="#case-V03">V03</a></div></details></article></div></section>
 <section class="below" id="issues"><div class="section-head"><div><h2><span class="number">03</span>工具异常与复测</h2><p>仅依据实际工具调用、响应和副作用核验结果。</p></div></div>
 <div class="fix-grid"><article class="fix" id="issue-b4-01"><div class="fix-header"><h3>B4-01 · 宽字符软换行多空格</h3><span class="badge partial">真实MCP样本通过</span></div><p>原宽字符填充问题已修；当前实例通过242行样本，21页重组与4472字节预期一致。</p><div class="result-list"><div><strong>242行</strong><span>实际工具回放样本</span></div><div><strong>21页</strong><span>工具日志分页</span></div><div><strong>4,472 B</strong><span>重组内容与预期一致</span></div></div><p class="next-step">原失败保留。组合字符/emoji、其他列宽和平台矩阵仍须补测。</p><div class="fix-links"><a href="#case-A04">A04 日志用例 ↗</a><a href="#case-A14">A14 字符边界 ↗</a><a href="#run-command-01">当前MCP复验 ↗</a><a href="#run04-detail">原工具失败样本 ↗</a></div></article><article class="fix" id="linux-writer"><div class="fix-header"><h3>SSH文件上传与下载</h3><span class="badge partial">实机单文件通过</span></div><p>MCP工具完成1MiB随机文件上传与下载；本机源、板卡、下载副本摘要一致，本机逐字节相等。</p><div class="result-list"><div><strong>1 MiB</strong><span>实际传输文件</span></div><div><strong>5/5</strong><span>本轮独立核验点</span></div></div><p class="next-step">剩余：空文件、显式覆盖、取消、故障和其他文件系统/平台组合；不能由单样本推定全部通过。</p><div class="fix-links"><a href="#case-DF02">下载用例 ↗</a><a href="#run-file-01">本轮实机结果 ↗</a><a href="#evidence-file-01">工具响应与核验 ↗</a></div></article><article class="fix" id="issue-cross-api-operation"><div class="fix-header"><h3>S15 · 跨工具操作ID未拒绝</h3><span class="badge partial">已修复 · 实机复测通过</span></div><p>原场景中旧操作ID曾通过start_task重复执行；两轮工具复测均返回INPUT_SEQUENCE_CONFLICT，额外副作用文件不存在，新ID和原任务精确重试正常。</p><div class="result-list"><div><strong>7 / 7</strong><span>原失败场景实机核对</span></div><div><strong>2 / 2</strong><span>实机反向路径核对</span></div></div><p class="muted">原场景7/7、反向2/2；RETEST2再次核验原场景7/7和反向2/2，各轮独立记账。</p><div class="fix-links"><a href="#case-S15">S15用例 ↗</a><a href="#cross-api-reproduction">精确复现步骤 ↗</a><a href="#evidence-command-01">原始证据 ↗</a><a href="#s15-fix-detail">工具复测详情 ↗</a><a href="#evidence-s15-fix">复测证据 ↗</a><a href="#failed-retest-02-detail">再次定向复测 ↗</a></div></article><article class="fix" id="issue-uart-stop"><div class="fix-header"><h3>UART · Ctrl+C未保证停止脚本</h3><span class="badge blocked">续测仍未停止 · 环境边界未解决</span></div><p>用户确认ttyUSB0为原ttyUSB1板卡后续测：观察START后stop_task及同ID重试均受理，但脚本仍输出END并生成10字节completed换行文件。最终unknown/terminationConfirmed=false，工具未误报已终止。</p><div class="result-list"><div><strong>unknown</strong><span>工具未确认终止</span></div><div><strong>TTY_NR=0</strong><span>诊断进程无控制终端</span></div></div><p class="next-step">RETEST2会话中断保留为上一轮事实；UARTRE3已完成有效续测。shell PID246和任务PID295均tty_nr=0、tpgid=-1。未修改板卡TTY/getty配置，不能把停止请求受理算作终止成功。</p><div class="fix-links"><a href="#case-S07">停止用例 ↗</a><a href="#case-U02">UART按键用例 ↗</a><a href="#uart-stop-diagnosis">环境诊断 ↗</a><a href="#failed-retest-02-detail">再次定向复测 ↗</a><a href="#uart-stop-retest-03-detail">ttyUSB0续测详情 ↗</a></div></article><article class="fix" id="issue-hdmi-observation-1104"><div class="fix-header"><h3>HDMI1104 · 首次探测观察不一致</h3><span class="badge retest">待定位/复验</span></div><p>首次探测返回submitted，MCP视口停在Memory usage、历史未找到探测标记；用户报告GUI可见结果和提示符。后续独立格式查询与采集可正常读取，根因未确认。</p><div class="result-list"><div><strong>submitted</strong><span>仅确认本机提交</span></div><div><strong>待定位</strong><span>GUI与MCP观察差异</span></div></div><p class="next-step">没有重发首次探测，也没有把后续正常读取当成该问题已修复。额外release未弹确认框，视觉验收另记未完成。</p><div class="fix-links"><a href="#case-U01">UART读取用例 ↗</a><a href="#hdmi-rx-20261104-detail">本轮实际调用记录 ↗</a></div></article><article class="fix" id="issue-wide-char-1114"><div class="fix-header"><h3>MCP1114 · 宽字符软换行插入空格</h3><span class="badge failed">失败/待修复</span></div><p>179 列终端输出 100 个“界”（200 列宽），折行处多出一个空格；search_context 命中“界 界”（lineIndex 49）。与历史 B4-01 一致，属复现而非新增。</p><div class="result-list"><div><strong>100 字</strong><span>宽字符输入</span></div><div><strong>1 个</strong><span>多余空格</span></div></div><p class="warn">未定位到渲染层或日志层；本轮未改动实现。</p><div class="fix-links"><a href="#case-A14">A14 宽字符用例 ↗</a><a href="#mcp-20261114-detail">本轮记录 ↗</a></div></article><article class="fix" id="issue-opid-reuse-1114"><div class="fix-header"><h3>MCP1114 · 跨接口 operationId 复用未被拒绝</h3><span class="badge failed">失败/待修复</span></div><p>interact_terminal 已使用 operationId 后，start_task 用同一 ID 提交被接受，并实际向 SSH 终端输入 `echo SHOULD-NOT-RUN-OPID-REUSE`。</p><div class="result-list"><div><strong>accepted</strong><span>start_task 受理</span></div><div><strong>已输入</strong><span>目标副作用</span></div></div><p class="warn">本次内容为无害 echo；幂等边界与契约需明确并补拒绝路径。</p><div class="fix-links"><a href="#case-S15">S15 冲突用例 ↗</a><a href="#mcp-20261114-detail">本轮记录 ↗</a></div></article><article class="fix" id="issue-clear-token-1114"><div class="fix-header"><h3>MCP1114 · 清空终端恒返回 CURSOR_STALE</h3><span class="badge failed">失败/待定位</span></div><p>两次使用紧邻读取的 clearToken 调用 clear_terminal（scope=scrollback、expectedGeneration=1）均返回 CURSOR_STALE。解码 token 可见 issued 为 JSON 数字，而 TerminalClearAdapter 以字符串解析。</p><div class="result-list"><div><strong>2/2</strong><span>均被拒绝</span></div><div><strong>0</strong><span>清空成功次数</span></div></div><p class="next-step">运行二进制与工作区源码是否一致尚待确认，未据源码直接判定回归。C02 因此未执行。</p><div class="fix-links"><a href="#case-C01">C01 清空用例 ↗</a><a href="#mcp-20261114-detail">本轮记录 ↗</a></div></article><article class="fix" id="issue-upload-unknown-1114"><div class="fix-header"><h3>MCP1114 · 同名不覆盖上传返回发布未知</h3><span class="badge retest">异常/待复验</span></div><p>同一 localPath/remotePath 以 overwrite=false 二次上传未再要求确认，最终 state=unknown、errorCode=TRANSFER_PUBLICATION_UNKNOWN、transferredBytes=34，而不是明确的“目标已存在”拒绝。</p><div class="result-list"><div><strong>unknown</strong><span>发布状态</span></div><div><strong>34 B</strong><span>已传输字节</span></div></div><p class="warn">未复查板卡文件是否被替换；后续需用不同内容复测并核对目标内容。</p><div class="fix-links"><a href="#case-SF03">SF03 同名上传 ↗</a><a href="#mcp-20261114-detail">本轮记录 ↗</a></div></article></div></section>
-<section class="below" id="evidence"><div class="section-head"><div><h2><span class="number">04</span>证据位置</h2><p>本机临时文件，清理或迁移后可能不可用；结论与边界保留在记录中。</p></div></div><div class="evidence-grid"><article class="evidence-item" id="evidence-r01"><span class="mono">R01</span><div><h3>首轮副作用与认证边界</h3><code>/tmp/novaterm-mcp-run-20261030/</code><p>s01*.log、wire-noauth.txt、wire-bogus.txt；部分早期响应仅有结论摘要</p></div></article><article class="evidence-item" id="evidence-r02"><span class="mono">R02</span><div><h3>只读响应与核对</h3><code>/tmp/novaterm-mcp-run-20261031-02/</code><p>responses.redacted.json · verify.py · verification.json</p></div></article><article class="evidence-item" id="evidence-r03"><span class="mono">R03</span><div><h3>交互与任务证据</h3><code>/tmp/novaterm-mcp-run-20261031-03/</code><p>41条调用响应 · 副作用文件 · verify.py · verification.json</p></div></article><article class="evidence-item" id="evidence-r04"><span class="mono">R04</span><div><h3>失败样本与预算对照</h3><code>/tmp/novaterm-mcp-run-20261031-04-xDlxLX/</code><p>expected.txt · actual.txt · responses.redacted.json · large-control.redacted.json</p></div></article><article class="evidence-item" id="evidence-file-01"><span class="mono">FILE1</span><div><h3>真实SSH随机文件往返</h3><code>/tmp/novaterm-b4-files-20261031-rq2h8a6c/</code><p>random.bin、downloaded.bin、random-manifest.json、responses.redacted.json、roundtrip-verification.json、verification.json</p></div></article><article class="evidence-item" id="evidence-serial-01"><span class="mono">SERIAL1</span><div><h3>串口ZMODEM与hash</h3><code>/tmp/novaterm-b4-files-20261031-rq2h8a6c/serial/</code><p>responses.redacted.json、manifest.json、verification.json；源文件仍在上级目录random.bin。</p></div></article><article class="evidence-item" id="evidence-command-01"><span class="mono">CMD1</span><div><h3>命令矩阵与失败副作用</h3><code>/tmp/novaterm-command-matrix-rq2h8a6c/</code><p>responses.redacted.json、verification.json（22/1）、cross-api-failure.json、UNEXPECTED-CROSS、uart-tty.redacted.json及报告/日志。</p></div></article><article class="evidence-item" id="evidence-dev-01"><span class="mono">DEV1</span><div><h3>开发场景版本与日志</h3><code>/tmp/novaterm-dev-scenario-rq2h8a6c/</code><p>脚本v1/v2、dev-v1.log/dev-v2.log、final-responses.redacted.json、workflow-verification.json（9/9）及初始核对器8/1。</p></div></article><article class="evidence-item" id="evidence-s15-fix"><span class="mono">S15FIX</span><div><h3>S15工具调用与副作用核验</h3><code>/tmp/novaterm-s15-live-retest-DaiYxk/</code><p>verification.json、final-verification.json、final-responses.redacted.json；first.txt、new-task.txt与反向样本。</p></div></article><article class="evidence-item" id="evidence-failed-retest-02"><span class="mono">RETEST2</span><div><h3>失败项再次复测证据</h3><code>/tmp/novaterm-failed-retest-kqt_ruyu/</code><p>verification.json、responses.redacted.json、environment.json、final-sessions.json；first.txt、new-task.txt及反向样本。</p></div></article><article class="evidence-item" id="evidence-uart-stop-retest-03"><span class="mono">UARTRE3</span><div><h3>ttyUSB0停止场景与进程事实</h3><code>/tmp/novaterm-uart-stop-retest-bzo7vii0/</code><p>本机responses.redacted.json、responses-initial.redacted.json、verification.json；板卡同路径保留task.pid、task.stat、finished.txt（10字节completed换行）。</p></div></article><article class="evidence-item" id="evidence-hdmi-rx-20261104"><span class="mono">HDMI1104</span><div><h3>实际参数、任务事实和屏幕核验</h3><code>records/HDMI_RX_MCP_2026-11-04.json</code><p>记录实际MCP操作、operationId/taskId及脱敏响应；包括首次观察不一致和用户未看到确认框的反馈，不包含软件夹具成绩。</p></div></article><article class="evidence-item" id="evidence-mcp-20261114"><span class="mono">MCP1114</span><div><h3>本轮参数、文件与哈希核验</h3><code>本轮临时文件（未提交）</code><p>upload-src.txt/download-dst.txt 为 34 字节、SHA-256 fc9a12c6…f0fc；板卡侧 /root/b4-upload.txt、/tmp/b4dual.txt 为实际副作用。未保存原始 JSON 响应。</p></div></article></div></section>
+<section class="below" id="evidence"><div class="section-head"><div><h2><span class="number">04</span>证据位置</h2><p>本机临时文件，清理或迁移后可能不可用；结论与边界保留在记录中。</p></div></div><div class="evidence-grid"><article class="evidence-item" id="evidence-r01"><span class="mono">R01</span><div><h3>首轮副作用与认证边界</h3><code>/tmp/novaterm-mcp-run-20261030/</code><p>s01*.log、wire-noauth.txt、wire-bogus.txt；部分早期响应仅有结论摘要</p></div></article><article class="evidence-item" id="evidence-r02"><span class="mono">R02</span><div><h3>只读响应与核对</h3><code>/tmp/novaterm-mcp-run-20261031-02/</code><p>responses.redacted.json · verify.py · verification.json</p></div></article><article class="evidence-item" id="evidence-r03"><span class="mono">R03</span><div><h3>交互与任务证据</h3><code>/tmp/novaterm-mcp-run-20261031-03/</code><p>41条调用响应 · 副作用文件 · verify.py · verification.json</p></div></article><article class="evidence-item" id="evidence-r04"><span class="mono">R04</span><div><h3>失败样本与预算对照</h3><code>/tmp/novaterm-mcp-run-20261031-04-xDlxLX/</code><p>expected.txt · actual.txt · responses.redacted.json · large-control.redacted.json</p></div></article><article class="evidence-item" id="evidence-file-01"><span class="mono">FILE1</span><div><h3>真实SSH随机文件往返</h3><code>/tmp/novaterm-b4-files-20261031-rq2h8a6c/</code><p>random.bin、downloaded.bin、random-manifest.json、responses.redacted.json、roundtrip-verification.json、verification.json</p></div></article><article class="evidence-item" id="evidence-serial-01"><span class="mono">SERIAL1</span><div><h3>串口ZMODEM与hash</h3><code>/tmp/novaterm-b4-files-20261031-rq2h8a6c/serial/</code><p>responses.redacted.json、manifest.json、verification.json；源文件仍在上级目录random.bin。</p></div></article><article class="evidence-item" id="evidence-command-01"><span class="mono">CMD1</span><div><h3>命令矩阵与失败副作用</h3><code>/tmp/novaterm-command-matrix-rq2h8a6c/</code><p>responses.redacted.json、verification.json（22/1）、cross-api-failure.json、UNEXPECTED-CROSS、uart-tty.redacted.json及报告/日志。</p></div></article><article class="evidence-item" id="evidence-dev-01"><span class="mono">DEV1</span><div><h3>开发场景版本与日志</h3><code>/tmp/novaterm-dev-scenario-rq2h8a6c/</code><p>脚本v1/v2、dev-v1.log/dev-v2.log、final-responses.redacted.json、workflow-verification.json（9/9）及初始核对器8/1。</p></div></article><article class="evidence-item" id="evidence-s15-fix"><span class="mono">S15FIX</span><div><h3>S15工具调用与副作用核验</h3><code>/tmp/novaterm-s15-live-retest-DaiYxk/</code><p>verification.json、final-verification.json、final-responses.redacted.json；first.txt、new-task.txt与反向样本。</p></div></article><article class="evidence-item" id="evidence-failed-retest-02"><span class="mono">RETEST2</span><div><h3>失败项再次复测证据</h3><code>/tmp/novaterm-failed-retest-kqt_ruyu/</code><p>verification.json、responses.redacted.json、environment.json、final-sessions.json；first.txt、new-task.txt及反向样本。</p></div></article><article class="evidence-item" id="evidence-uart-stop-retest-03"><span class="mono">UARTRE3</span><div><h3>ttyUSB0停止场景与进程事实</h3><code>/tmp/novaterm-uart-stop-retest-bzo7vii0/</code><p>本机responses.redacted.json、responses-initial.redacted.json、verification.json；板卡同路径保留task.pid、task.stat、finished.txt（10字节completed换行）。</p></div></article><article class="evidence-item" id="evidence-hdmi-rx-20261104"><span class="mono">HDMI1104</span><div><h3>实际参数、任务事实和屏幕核验</h3><code>records/HDMI_RX_MCP_2026-11-04.json</code><p>记录实际MCP操作、operationId/taskId及脱敏响应；包括首次观察不一致和用户未看到确认框的反馈，不包含软件夹具成绩。</p></div></article><article class="evidence-item" id="evidence-mcp-20261114"><span class="mono">MCP1114</span><div><h3>本轮参数、文件与哈希核验</h3><code>本轮临时文件（未提交）</code><p>upload-src.txt/download-dst.txt 为 34 字节、SHA-256 fc9a12c6…f0fc；板卡侧 /root/b4-upload.txt、/tmp/b4dual.txt 为实际副作用。未保存原始 JSON 响应。</p></div></article><article class="evidence-item" id="evidence-mcp-20261114b"><span class="mono">MCP1114b</span><div><h3>V02 服务端畸形参数边界（无凭据泄漏）</h3><code>docs/architecture/stages/P8_AI_MCP_Interface/</code><p>真实调用 list_sessions(limit=-5)、search_context(maxMatches=9999)、search_context(scope=invalid) 均返回干净 INVALID_ARGUMENT，响应不含 token/凭据。</p></div></article></div></section>
 <section class="below" id="archives"><div class="section-head"><div><h2><span class="number">05</span>工具调用详细记录</h2><p>保留各轮调用参数、响应、实际副作用与核验；历史失败不被复测覆盖。</p></div></div><div class="archive-box"><details>
 <summary>R04工具调用与原始失败</summary>
 <p><a id="run04-detail"></a></p>
@@ -3420,7 +3420,7 @@ printf '\nNT_HDMI_UI_CAPTURE_END rc=%s\n' &quot;$nt_rc&quot;
         "status": "未执行",
         "scope": "—",
         "proof": "尚无此用例完整执行证据。",
-        "gap": "按清单执行正向、负向与恢复判据，并取得对应环境证据。",
+        "gap": "按清单执行正向、负向与恢复判据，并取得对应环境证据。 需用户配合/设施：GUI 内两客户端统一令牌，撤某会话读取/输入后刷新两端。",
         "refs": ""
       },
       {
@@ -3492,7 +3492,7 @@ printf '\nNT_HDMI_UI_CAPTURE_END rc=%s\n' &quot;$nt_rc&quot;
         "status": "未执行",
         "scope": "—",
         "proof": "尚无此用例完整执行证据。",
-        "gap": "当前harness没有显式取消单次MCP请求的入口；超时已测但不能代替取消。",
+        "gap": "当前harness没有显式取消单次MCP请求的入口；超时已测但不能代替取消。 需用户配合/设施：Agent 工具无「取消单请求」入口（stop_task 发 Ctrl+C，不合判据）。",
         "refs": ""
       },
       {
@@ -3516,7 +3516,7 @@ printf '\nNT_HDMI_UI_CAPTURE_END rc=%s\n' &quot;$nt_rc&quot;
         "status": "未执行",
         "scope": "—",
         "proof": "尚无此用例完整执行证据。",
-        "gap": "需要真实人工在指定终端接管；已询问是否配合，未收到相应确认，本轮未模拟真人。",
+        "gap": "需要真实人工在指定终端接管；已询问是否配合，未收到相应确认，本轮未模拟真人。 需用户配合/设施：人工接管后旧控制拒绝；需你在 GUI 手动输入。",
         "refs": ""
       },
       {
@@ -3524,7 +3524,7 @@ printf '\nNT_HDMI_UI_CAPTURE_END rc=%s\n' &quot;$nt_rc&quot;
         "status": "未执行",
         "scope": "—",
         "proof": "尚无此用例完整执行证据。",
-        "gap": "需要可控MCP客户端真实断开/重连；当前持有连接的harness未提供操作入口。",
+        "gap": "需要可控MCP客户端真实断开/重连；当前持有连接的harness未提供操作入口。 需用户配合/设施：可控客户端真实断开/重连；需原始 HTTP 客户端。",
         "refs": ""
       },
       {
@@ -3556,7 +3556,7 @@ printf '\nNT_HDMI_UI_CAPTURE_END rc=%s\n' &quot;$nt_rc&quot;
         "status": "未执行",
         "scope": "—",
         "proof": "尚无此用例完整执行证据。",
-        "gap": "按清单执行正向、负向与恢复判据，并取得对应环境证据。",
+        "gap": "按清单执行正向、负向与恢复判据，并取得对应环境证据。 需用户配合/设施：获准重启板卡进 U-Boot/启动过程；高风险需你确认。",
         "refs": ""
       },
       {
@@ -3580,7 +3580,7 @@ printf '\nNT_HDMI_UI_CAPTURE_END rc=%s\n' &quot;$nt_rc&quot;
         "status": "未执行",
         "scope": "—",
         "proof": "尚无此用例完整执行证据。",
-        "gap": "按清单执行正向、负向与恢复判据，并取得对应环境证据。",
+        "gap": "按清单执行正向、负向与恢复判据，并取得对应环境证据。 需用户配合/设施：GUI 内复位统一令牌/停用再启用；需你在应用里操作。",
         "refs": ""
       },
       {
@@ -3620,7 +3620,7 @@ printf '\nNT_HDMI_UI_CAPTURE_END rc=%s\n' &quot;$nt_rc&quot;
         "status": "未执行",
         "scope": "—",
         "proof": "尚无此用例完整执行证据。",
-        "gap": "按清单执行正向、负向与恢复判据，并取得对应环境证据。",
+        "gap": "按清单执行正向、负向与恢复判据，并取得对应环境证据。 需用户配合/设施：固定设备负载 + GUI 帧时间测量（工位 GUI）。",
         "refs": ""
       },
       {
@@ -3628,7 +3628,7 @@ printf '\nNT_HDMI_UI_CAPTURE_END rc=%s\n' &quot;$nt_rc&quot;
         "status": "未执行",
         "scope": "—",
         "proof": "尚无此用例完整执行证据。",
-        "gap": "按清单执行正向、负向与恢复判据，并取得对应环境证据。",
+        "gap": "按清单执行正向、负向与恢复判据，并取得对应环境证据。 需用户配合/设施：最多 4 客户端 + 慢客户端/过载注入。",
         "refs": ""
       },
       {
@@ -3660,7 +3660,7 @@ printf '\nNT_HDMI_UI_CAPTURE_END rc=%s\n' &quot;$nt_rc&quot;
         "status": "未执行",
         "scope": "—",
         "proof": "尚无此用例完整执行证据。",
-        "gap": "按清单执行正向、负向与恢复判据，并取得对应环境证据。",
+        "gap": "按清单执行正向、负向与恢复判据，并取得对应环境证据。 需用户配合/设施：受控 SFTP 上传发布前停用/断连。",
         "refs": ""
       },
       {
@@ -3668,7 +3668,7 @@ printf '\nNT_HDMI_UI_CAPTURE_END rc=%s\n' &quot;$nt_rc&quot;
         "status": "未执行",
         "scope": "—",
         "proof": "尚无此用例完整执行证据。",
-        "gap": "按清单执行正向、负向与恢复判据，并取得对应环境证据。",
+        "gap": "按清单执行正向、负向与恢复判据，并取得对应环境证据。 需用户配合/设施：受控 SFTP 后端退出与新上传相邻。",
         "refs": ""
       },
       {
@@ -3700,7 +3700,7 @@ printf '\nNT_HDMI_UI_CAPTURE_END rc=%s\n' &quot;$nt_rc&quot;
         "status": "未执行",
         "scope": "MCP工具场景待测",
         "proof": "尚无通过MCP工具执行本项场景的记录。",
-        "gap": "按本项操作与完整判据，通过MCP工具在隔离目标上执行并核对响应及副作用。",
+        "gap": "按本项操作与完整判据，通过MCP工具在隔离目标上执行并核对响应及副作用。 需用户配合/设施：受控 SFTP 测试端提供短读/EOF/源变化。",
         "refs": ""
       },
       {
@@ -3708,7 +3708,7 @@ printf '\nNT_HDMI_UI_CAPTURE_END rc=%s\n' &quot;$nt_rc&quot;
         "status": "未执行",
         "scope": "MCP工具场景待测",
         "proof": "尚无通过MCP工具执行本项场景的记录。",
-        "gap": "按本项操作与完整判据，通过MCP工具在隔离目标上执行并核对响应及副作用。",
+        "gap": "按本项操作与完整判据，通过MCP工具在隔离目标上执行并核对响应及副作用。 需用户配合/设施：受控 SFTP 端 + 下载中取消/停用/断连。",
         "refs": ""
       },
       {
@@ -3716,7 +3716,7 @@ printf '\nNT_HDMI_UI_CAPTURE_END rc=%s\n' &quot;$nt_rc&quot;
         "status": "未执行",
         "scope": "MCP工具场景待测",
         "proof": "尚无通过MCP工具执行本项场景的记录。",
-        "gap": "按本项操作与完整判据，通过MCP工具在隔离目标上执行并核对响应及副作用。",
+        "gap": "按本项操作与完整判据，通过MCP工具在隔离目标上执行并核对响应及副作用。 需用户配合/设施：受控目录准备符号链接/目录/不可信属主目标。",
         "refs": ""
       },
       {
@@ -3724,7 +3724,7 @@ printf '\nNT_HDMI_UI_CAPTURE_END rc=%s\n' &quot;$nt_rc&quot;
         "status": "未执行",
         "scope": "MCP工具场景待测",
         "proof": "尚无通过MCP工具执行本项场景的记录。",
-        "gap": "按本项操作与完整判据，通过MCP工具在隔离目标上执行并核对响应及副作用。",
+        "gap": "按本项操作与完整判据，通过MCP工具在隔离目标上执行并核对响应及副作用。 需用户配合/设施：受控目录替换目标父目录/祖先 + 竞争创建。",
         "refs": ""
       },
       {
@@ -3732,7 +3732,7 @@ printf '\nNT_HDMI_UI_CAPTURE_END rc=%s\n' &quot;$nt_rc&quot;
         "status": "未执行",
         "scope": "—",
         "proof": "尚无此用例完整执行证据。",
-        "gap": "按清单执行正向、负向与恢复判据，并取得对应环境证据。",
+        "gap": "按清单执行正向、负向与恢复判据，并取得对应环境证据。 需用户配合/设施：板卡侧先准备 rz 接收端；需你配合。",
         "refs": ""
       },
       {
@@ -3756,7 +3756,7 @@ printf '\nNT_HDMI_UI_CAPTURE_END rc=%s\n' &quot;$nt_rc&quot;
         "status": "未执行",
         "scope": "—",
         "proof": "尚无此用例完整执行证据。",
-        "gap": "按清单执行正向、负向与恢复判据，并取得对应环境证据。",
+        "gap": "按清单执行正向、负向与恢复判据，并取得对应环境证据。 需用户配合/设施：明确降级为跳过的接收端制造 ZSKIP。",
         "refs": ""
       },
       {
@@ -3764,7 +3764,7 @@ printf '\nNT_HDMI_UI_CAPTURE_END rc=%s\n' &quot;$nt_rc&quot;
         "status": "未执行",
         "scope": "—",
         "proof": "尚无此用例完整执行证据。",
-        "gap": "按清单执行正向、负向与恢复判据，并取得对应环境证据。",
+        "gap": "按清单执行正向、负向与恢复判据，并取得对应环境证据。 需用户配合/设施：板卡侧 rz 接收端 + 精确重试/取消。",
         "refs": ""
       },
       {
@@ -3772,7 +3772,7 @@ printf '\nNT_HDMI_UI_CAPTURE_END rc=%s\n' &quot;$nt_rc&quot;
         "status": "未执行",
         "scope": "—",
         "proof": "尚无此用例完整执行证据。",
-        "gap": "按清单执行正向、负向与恢复判据，并取得对应环境证据。",
+        "gap": "按清单执行正向、负向与恢复判据，并取得对应环境证据。 需用户配合/设施：板卡侧 rz + 换代/重连/旧取消。",
         "refs": ""
       },
       {
@@ -3780,7 +3780,7 @@ printf '\nNT_HDMI_UI_CAPTURE_END rc=%s\n' &quot;$nt_rc&quot;
         "status": "未执行",
         "scope": "—",
         "proof": "尚无此用例完整执行证据。",
-        "gap": "按清单执行正向、负向与恢复判据，并取得对应环境证据。",
+        "gap": "按清单执行正向、负向与恢复判据，并取得对应环境证据。 需用户配合/设施：合法文件使总期限>1h + 板卡 rz 接收。",
         "refs": ""
       },
       {
@@ -3788,7 +3788,7 @@ printf '\nNT_HDMI_UI_CAPTURE_END rc=%s\n' &quot;$nt_rc&quot;
         "status": "未执行",
         "scope": "—",
         "proof": "尚无此用例完整执行证据。",
-        "gap": "按清单执行正向、负向与恢复判据，并取得对应环境证据。",
+        "gap": "按清单执行正向、负向与恢复判据，并取得对应环境证据。 需用户配合/设施：可控接收端最后握手打断。",
         "refs": ""
       },
       {
@@ -3804,7 +3804,7 @@ printf '\nNT_HDMI_UI_CAPTURE_END rc=%s\n' &quot;$nt_rc&quot;
         "status": "未执行",
         "scope": "MCP工具场景待测",
         "proof": "尚无通过MCP工具执行本项场景的记录。",
-        "gap": "按本项操作与完整判据，通过MCP工具在隔离目标上执行并核对响应及副作用。",
+        "gap": "按本项操作与完整判据，通过MCP工具在隔离目标上执行并核对响应及副作用。 需用户配合/设施：受控目标在初始缺失时由竞争者创建 + 错误注入。",
         "refs": ""
       },
       {
@@ -3812,7 +3812,7 @@ printf '\nNT_HDMI_UI_CAPTURE_END rc=%s\n' &quot;$nt_rc&quot;
         "status": "未执行",
         "scope": "MCP工具场景待测",
         "proof": "尚无通过MCP工具执行本项场景的记录。",
-        "gap": "按本项操作与完整判据，通过MCP工具在隔离目标上执行并核对响应及副作用。",
+        "gap": "按本项操作与完整判据，通过MCP工具在隔离目标上执行并核对响应及副作用。 需用户配合/设施：受控目标在最终复核前替换/删除/改属性。",
         "refs": ""
       },
       {
@@ -3820,7 +3820,7 @@ printf '\nNT_HDMI_UI_CAPTURE_END rc=%s\n' &quot;$nt_rc&quot;
         "status": "未执行",
         "scope": "MCP工具场景待测",
         "proof": "尚无通过MCP工具执行本项场景的记录。",
-        "gap": "按本项操作与完整判据，通过MCP工具在隔离目标上执行并核对响应及副作用。",
+        "gap": "按本项操作与完整判据，通过MCP工具在隔离目标上执行并核对响应及副作用。 需用户配合/设施：Windows 只读目标/保留外部句柄/多硬链接。",
         "refs": ""
       },
       {
@@ -3828,7 +3828,7 @@ printf '\nNT_HDMI_UI_CAPTURE_END rc=%s\n' &quot;$nt_rc&quot;
         "status": "未执行",
         "scope": "MCP工具场景待测",
         "proof": "尚无通过MCP工具执行本项场景的记录。",
-        "gap": "按本项操作与完整判据，通过MCP工具在隔离目标上执行并核对响应及副作用。",
+        "gap": "按本项操作与完整判据，通过MCP工具在隔离目标上执行并核对响应及副作用。 需用户配合/设施：发布前取消/身份失效 + 发布开始后取消。",
         "refs": ""
       },
       {
@@ -3836,7 +3836,7 @@ printf '\nNT_HDMI_UI_CAPTURE_END rc=%s\n' &quot;$nt_rc&quot;
         "status": "未执行",
         "scope": "远端SFTP",
         "proof": "尚无远端故障或扩展能力组合的MCP工具测试记录。",
-        "gap": "在受控服务端执行丢响应或扩展能力组合，并分别核对上传/下载事实。",
+        "gap": "在受控服务端执行丢响应或扩展能力组合，并分别核对上传/下载事实。 需用户配合/设施：受控 SFTP rename 后丢响应。",
         "refs": ""
       },
       {
@@ -3844,7 +3844,7 @@ printf '\nNT_HDMI_UI_CAPTURE_END rc=%s\n' &quot;$nt_rc&quot;
         "status": "未执行",
         "scope": "远端SFTP",
         "proof": "尚无远端故障或扩展能力组合的MCP工具测试记录。",
-        "gap": "在受控服务端执行丢响应或扩展能力组合，并分别核对上传/下载事实。",
+        "gap": "在受控服务端执行丢响应或扩展能力组合，并分别核对上传/下载事实。 需用户配合/设施：受控 SFTP posix-rename/hardlink 能力版本对照。",
         "refs": ""
       },
       {
@@ -3860,7 +3860,7 @@ printf '\nNT_HDMI_UI_CAPTURE_END rc=%s\n' &quot;$nt_rc&quot;
         "status": "未执行",
         "scope": "MCP工具场景待测",
         "proof": "尚无通过MCP工具执行本项场景的记录。",
-        "gap": "按本项操作与完整判据，通过MCP工具在隔离目标上执行并核对响应及副作用。",
+        "gap": "按本项操作与完整判据，通过MCP工具在隔离目标上执行并核对响应及副作用。 需用户配合/设施：SFTP/UART 分别直接路径 + X 确认流程。",
         "refs": ""
       },
       {
@@ -3868,7 +3868,7 @@ printf '\nNT_HDMI_UI_CAPTURE_END rc=%s\n' &quot;$nt_rc&quot;
         "status": "未执行",
         "scope": "MCP工具场景待测",
         "proof": "尚无通过MCP工具执行本项场景的记录。",
-        "gap": "按本项操作与完整判据，通过MCP工具在隔离目标上执行并核对响应及副作用。",
+        "gap": "按本项操作与完整判据，通过MCP工具在隔离目标上执行并核对响应及副作用。 需用户配合/设施：受控路径/链接/多硬链/设备对象/目标替换。",
         "refs": ""
       },
       {
@@ -3980,7 +3980,7 @@ printf '\nNT_HDMI_UI_CAPTURE_END rc=%s\n' &quot;$nt_rc&quot;
         "status": "未执行",
         "scope": "—",
         "proof": "尚无此用例完整执行证据。",
-        "gap": "按清单执行正向、负向与恢复判据，并取得对应环境证据。",
+        "gap": "按清单执行正向、负向与恢复判据，并取得对应环境证据。 需用户配合/设施：GUI 跨会话撤权/恢复；需你在应用里操作。",
         "refs": ""
       },
       {
@@ -3988,7 +3988,7 @@ printf '\nNT_HDMI_UI_CAPTURE_END rc=%s\n' &quot;$nt_rc&quot;
         "status": "未执行",
         "scope": "—",
         "proof": "尚无此用例完整执行证据。",
-        "gap": "按清单执行正向、负向与恢复判据，并取得对应环境证据。",
+        "gap": "按清单执行正向、负向与恢复判据，并取得对应环境证据。 需用户配合/设施：GUI 重连默认权限/新绑定；需你在应用里操作。",
         "refs": ""
       },
       {
@@ -4012,7 +4012,7 @@ printf '\nNT_HDMI_UI_CAPTURE_END rc=%s\n' &quot;$nt_rc&quot;
         "status": "未执行",
         "scope": "—",
         "proof": "尚无此用例完整执行证据。",
-        "gap": "按清单执行正向、负向与恢复判据，并取得对应环境证据。",
+        "gap": "按清单执行正向、负向与恢复判据，并取得对应环境证据。 需用户配合/设施：应用内先开启录制（当前 list_captures 为空）。",
         "refs": ""
       },
       {
@@ -4020,7 +4020,7 @@ printf '\nNT_HDMI_UI_CAPTURE_END rc=%s\n' &quot;$nt_rc&quot;
         "status": "未执行",
         "scope": "—",
         "proof": "尚无此用例完整执行证据。",
-        "gap": "按清单执行正向、负向与恢复判据，并取得对应环境证据。",
+        "gap": "按清单执行正向、负向与恢复判据，并取得对应环境证据。 需用户配合/设施：应用内持续录制中查询高水位。",
         "refs": ""
       },
       {
@@ -4028,7 +4028,7 @@ printf '\nNT_HDMI_UI_CAPTURE_END rc=%s\n' &quot;$nt_rc&quot;
         "status": "未执行",
         "scope": "—",
         "proof": "尚无此用例完整执行证据。",
-        "gap": "按清单执行正向、负向与恢复判据，并取得对应环境证据。",
+        "gap": "按清单执行正向、负向与恢复判据，并取得对应环境证据。 需用户配合/设施：关闭终端后读录制 / 停用删除录制。",
         "refs": ""
       },
       {
@@ -4068,7 +4068,7 @@ printf '\nNT_HDMI_UI_CAPTURE_END rc=%s\n' &quot;$nt_rc&quot;
         "status": "未执行",
         "scope": "—",
         "proof": "尚无此用例完整执行证据。",
-        "gap": "按清单执行正向、负向与恢复判据，并取得对应环境证据。",
+        "gap": "按清单执行正向、负向与恢复判据，并取得对应环境证据。 需用户配合/设施：确认期限/额度/清除需 GUI 调 token 库。",
         "refs": ""
       },
       {
@@ -4076,7 +4076,7 @@ printf '\nNT_HDMI_UI_CAPTURE_END rc=%s\n' &quot;$nt_rc&quot;
         "status": "未执行",
         "scope": "—",
         "proof": "尚无此用例完整执行证据。",
-        "gap": "按清单执行正向、负向与恢复判据，并取得对应环境证据。",
+        "gap": "按清单执行正向、负向与恢复判据，并取得对应环境证据。 需用户配合/设施：同身份重启/令牌重置需 GUI + 重启。",
         "refs": ""
       },
       {
@@ -4089,11 +4089,11 @@ printf '\nNT_HDMI_UI_CAPTURE_END rc=%s\n' &quot;$nt_rc&quot;
       },
       {
         "id": "V02",
-        "status": "未执行",
+        "status": "部分验证",
         "scope": "—",
-        "proof": "尚无此用例完整执行证据。",
-        "gap": "按清单执行正向、负向与恢复判据，并取得对应环境证据。",
-        "refs": ""
+        "proof": "MCP1114b：真实调用验证服务端对非法参数返回干净 INVALID_ARGUMENT 且无凭据/请求体泄漏——limit=-5、maxMatches=9999、scope=invalid 均被拒，错误响应不含 token/Host/Origin。",
+        "gap": "退役工具名/旧 grant 参数/两代原始 HTTP 的负向对照需原始客户端，Agent 工具集未暴露这些入口；未做跨代报文互操作对照。",
+        "refs": "[MCP1114b](#evidence-mcp-20261114b)"
       },
       {
         "id": "V03",
@@ -4355,6 +4355,13 @@ printf '\nNT_HDMI_UI_CAPTURE_END rc=%s\n' &quot;$nt_rc&quot;
         "title": "本轮参数、文件与哈希核验",
         "path": "本轮临时文件（未提交）",
         "note": "upload-src.txt/download-dst.txt 为 34 字节、SHA-256 fc9a12c6…f0fc；板卡侧 /root/b4-upload.txt、/tmp/b4dual.txt 为实际副作用。未保存原始 JSON 响应。"
+      },
+      {
+        "key": "MCP1114b",
+        "anchor": "evidence-mcp-20261114b",
+        "title": "V02 服务端畸形参数边界（无凭据泄漏）",
+        "path": "docs/architecture/stages/P8_AI_MCP_Interface/",
+        "note": "真实调用 list_sessions(limit=-5)、search_context(maxMatches=9999)、search_context(scope=invalid) 均返回干净 INVALID_ARGUMENT，响应不含 token/凭据。"
       }
     ],
     "references": {
@@ -4736,7 +4743,7 @@ printf '\nNT_HDMI_UI_CAPTURE_END rc=%s\n' &quot;$nt_rc&quot;
     "version": "0.2.141",
     "updated": "2026-11-14",
     "status": "总体验收未通过",
-    "summary": "本页仅记录实际MCP工具使用。新增MCP1114：0.2.141 上 SSH 与 COM3 实机复测，观察/分页/精确重试/等待/释放/目录/传输主路径通过；宽字符折行、跨接口operationId复用、清空令牌、同名不覆盖上传四处异常，B4未整体验收。",
+    "summary": "本页仅记录实际MCP工具使用。新增MCP1114：0.2.141 上 SSH 与 COM3 实机复测，观察/分页/精确重试/等待/释放/目录/传输主路径通过；宽字符折行、跨接口operationId复用、清空令牌、同名不覆盖上传四处异常，B4未整体验收。MCP1114b 补充 V02 服务端畸形参数被拒、无凭据泄漏的服务端侧证据。",
     "priority": {
       "label": "本轮 · 0.2.141 SSH/UART 复测",
       "target": "mcp-20261114-detail",
