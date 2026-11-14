@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.20)
-project(NovaTerm VERSION 0.2.142 LANGUAGES CXX C)
+project(NovaTerm VERSION 0.2.143 LANGUAGES CXX C)
 
 # ═══════════════════════════════════════════════════════════════════
 #  1. 通用平台编译参数
@@ -877,7 +877,8 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
     set(CPACK_GENERATOR "DEB;ZIP")
     set(CPACK_SOURCE_GENERATOR "TGZ")
 elseif(CMAKE_SYSTEM_NAME STREQUAL "Windows")
-    set(CPACK_GENERATOR "NSIS;ZIP")
+    # Windows 仅采用 ZIP 分发，不使用 NSIS 安装器打包。
+    set(CPACK_GENERATOR "ZIP")
     set(CPACK_SOURCE_GENERATOR "ZIP")
 elseif(CMAKE_SYSTEM_NAME STREQUAL "Darwin")
     set(CPACK_GENERATOR "DragNDrop;ZIP")
@@ -904,26 +905,8 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
     set(CPACK_DEBIAN_PACKAGE_SHLIBDEPS ON)
 endif()
 
-# ── Windows NSIS 专属配置 ─────────────────────────────────────
-if(CMAKE_SYSTEM_NAME STREQUAL "Windows")
-    # 安装界面显示名（区别于内部包名 novaterm）
-    set(CPACK_NSIS_PACKAGE_NAME "NovaTerm ${PROJECT_VERSION}")
-    set(CPACK_NSIS_DISPLAY_NAME "NovaTerm")
-    set(CPACK_NSIS_URL_INFO_ABOUT "${CPACK_PACKAGE_HOMEPAGE_URL}")
-    set(CPACK_NSIS_CONTACT "li ji")
-    set(CPACK_NSIS_INSTALL_ROOT "$PROGRAMFILES64")
-    # 允许用户选择安装目录，并在开始菜单创建快捷方式
-    set(CPACK_NSIS_MODIFY_PATH OFF)
-    set(CPACK_NSIS_CREATE_ICONS_EXTRA
-        "CreateShortCut '$SMPROGRAMS\\\\NovaTerm.lnk' '$INSTDIR\\\\${CMAKE_INSTALL_BINDIR}\\\\NovaTerm.exe'")
-    set(CPACK_NSIS_DELETE_ICONS_EXTRA
-        "Delete '$SMPROGRAMS\\\\NovaTerm.lnk'")
-    # 安装程序图标（可选，缺失时用 NSIS 默认图标）
-    if(EXISTS "${CMAKE_SOURCE_DIR}/resources/icons/app_logo.ico")
-        set(CPACK_NSIS_MUI_ICON "${CMAKE_SOURCE_DIR}/resources/icons/app_logo.ico")
-        set(CPACK_NSIS_MUI_UNIICON "${CMAKE_SOURCE_DIR}/resources/icons/app_logo.ico")
-    endif()
-endif()
+# ── Windows 专属配置 ───────────────────────────────────────────
+# 仅 ZIP 分发，无 NSIS 安装器配置。
 
 # ── macOS DragNDrop (DMG) 专属配置 ────────────────────────────
 if(CMAKE_SYSTEM_NAME STREQUAL "Darwin")
@@ -940,7 +923,7 @@ endif()
 include(CPack)
 
 # ── 跨平台打包辅助目标 ─────────────────────────────────────────
-# cmake --build . --target package     → CPack 默认组合（DEB+ZIP / NSIS+ZIP / DMG+ZIP）
+# cmake --build . --target package     → CPack 默认组合（DEB+ZIP / ZIP / DMG+ZIP）
 # cmake --build . --target package-zip  → 仅产 ZIP（跨平台通用，便于分发）
 if(NOT TARGET package-zip)
     add_custom_target(package-zip
