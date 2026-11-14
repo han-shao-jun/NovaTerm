@@ -403,6 +403,8 @@ SSH 使用独立 I/O 上下文，阶段化完成 DNS/TCP、host-key 验证、认
 
 主机密钥首次信任和变更必须通过 UI 决策流程，不允许默认静默接受。认证 callback 不得阻塞 GUI。
 
+用户确认后写入 `~/.ssh/known_hosts` 只用于持久化这次判定：写盘失败（文件只读、被其他进程独占、目录 ACL 受限等）时按 OpenSSH 的方式降级为“仅本次会话信任”并发出告警，不中断已获准的连接，下一次连接重新要求确认。SFTP 独立连接仍要求本机记录可用或与活动终端指纹一致；密钥变更、记录冲突或无法读取记录一律拒绝。
+
 SSH Transport 不得直接调用 UI。需要用户决策时通过 Session/Application 层发布结构化 Challenge，例如 `HostKeyChallenge`、`PasswordChallenge`、`KeyboardInteractiveChallenge`、`PassphraseChallenge`，UI 返回对应 `ChallengeResponse`。Challenge 必须带 `SessionId`/generation/ChallengeId，Session 关闭或 generation 变化后迟到响应必须被忽略。
 
 ### 步骤 8：实现 Serial Transport
