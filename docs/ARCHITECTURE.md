@@ -388,8 +388,10 @@ instructions，按选择、观察、执行、查询和文件传输组织调用�
 HTTP JSON 请求最多 12 MiB + 256 KiB，
 响应保持 2 MiB；HTTP 原始交换、解析与排队共用 49.1875 MiB 输入额度。
 默认 URL 为 `http://127.0.0.1:38973/mcp`，应用重启后保持稳定；启动前可设置
-`NOVATERM_MCP_HTTP_PORT` 覆盖端口。只监听回环地址，每个请求核验 Bearer token、
-Host 与 Origin；端口冲突明确失败，不自动换端口或改投另一个实例。
+`NOVATERM_MCP_HTTP_PORT` 覆盖端口。默认只监听回环地址；MCP 设置页可显式开启
+局域网访问并选择本机网卡地址，此时在回环之外额外绑定该地址，Host 与 Origin 按
+连接实际命中的本机地址校验，每个请求仍核验 Bearer token。端口冲突明确失败，
+不自动换端口或改投另一个实例。
 2025 协议用 initialize 与 `MCP-Session-Id`；旧 SSE elicitation 确认已退役，TCP 断开不等于
 取消，DELETE 结束协议会话。2026 使用无会话的每请求 metadata/MRTR，断流取消
 该请求；取消不证明目标命令已终止，未知结果仍用 `COMMAND_OUTCOME_UNKNOWN`。

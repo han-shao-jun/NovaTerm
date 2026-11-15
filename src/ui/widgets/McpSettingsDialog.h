@@ -11,6 +11,7 @@
 namespace NovaTerm::Mcp { class Service; }
 namespace NovaTerm::Ui { class SettingsController; }
 class ElaCheckBox;
+class ElaComboBox;
 class ElaText;
 class ElaTreeWidget;
 class QTreeWidgetItem;
@@ -24,6 +25,7 @@ public:
 private:
     void refresh();
     void reportFailure();
+    void applyListenAddress(const QString& address);
     void editElevationCredentials(const QString& sessionId);
     /** @brief 提交一项授权并回写服务端级联结果；失败时由调用方排队刷新。 */
     bool applyPermission(QTreeWidgetItem* root,
@@ -34,6 +36,8 @@ private:
     std::unique_ptr<NovaTerm::Ui::SessionPermissionModel> _model;
     std::unique_ptr<NovaTerm::Ui::SettingsController> _controller;
     ElaCheckBox* _enabled{nullptr};
+    ElaCheckBox* _lanAccess{nullptr};
+    ElaComboBox* _listenAddress{nullptr};
     ElaText* _status{nullptr};
     ElaTreeWidget* _sessions{nullptr};
     quint64 _accessIdentity{0};

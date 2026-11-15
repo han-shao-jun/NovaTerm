@@ -35,14 +35,18 @@
 #include <QDir>
 #include <QElapsedTimer>
 #include <QFile>
+#include <QAbstractSocket>
+#include <QHostAddress>
 #include <QCryptographicHash>
 #include <QJsonDocument>
+#include <QNetworkInterface>
 #include <QPointer>
 #include <QScopedValueRollback>
 #include <QRunnable>
 #include <QThreadPool>
 #include <QTimer>
 #include <QTimeZone>
+#include <QUrl>
 #include <algorithm>
 #include <atomic>
 #include <chrono>
@@ -121,7 +125,7 @@ public:
     }
 
     Impl(Service* owner, QString stateDir, QString runtimeDir, std::unique_ptr<CredentialStore> credentials, quint16 port,
-         std::shared_ptr<Resources::ResourceSharingService> resources)
+         QString listenAddressValue, std::shared_ptr<Resources::ResourceSharingService> resources)
         : q(owner), stateDirectory(stateDir.isEmpty() ? dataDirectory() : std::move(stateDir)),
           instanceDirectory(runtimeDir.isEmpty() ? runtimeDirectory() : std::move(runtimeDir)),
           access(stateDirectory, std::move(credentials), owner),
@@ -157,20 +161,29 @@ public:
         serialFileTransfers = std::make_unique<SerialFileTransfers>(access, sessions, *serialFileTargets, instance, owner);
         uploadConfirmations = std::make_unique<UploadConfirmations>(stateDirectory);
         listenPort = port;
+        {
+            const auto requested = listenAddressValue.trimmed();
+            const QHostAddress parsed(requested);
+            listenAddress = requested.isEmpty() || (!parsed.isNull() && parsed.isLoopback())
+                ? QStringLiteral("127.0.0.1") : requested;
+        }
         timer.setInterval(100);
         QObject::connect(&timer, &QTimer::timeout, q, [this] { expireJobs(); });
         QObject::connect(&io, &HttpMcpEndpoint::listening, q, [this](bool ok, const QString& url) {
             if (!started) return;
             listening = ok;
             address = ok ? url : QString{};
+            loopbackAddress.clear();
             if (ok) {
+                const auto port = QUrl(url).port();
+                loopbackAddress = QStringLiteral("http://127.0.0.1:%1/mcp").arg(port);
                 ok = writePrivateJson(manifestPath(), {{"instanceId", instance},
                     {"pid", QString::number(QCoreApplication::applicationPid())},
                     {"startedAt", utcNow()}, {"applicationVersion", NOVATERM_VERSION},
                     {"transport", "streamable-http"}, {"endpoint", address}});
             }
             status = ok ? QStringLiteral("Listening") : QStringLiteral("HTTP startup failed");
-            if (!ok) { listening = false; address.clear(); io.stop(); }
+            if (!ok) { listening = false; address.clear(); loopbackAddress.clear(); io.stop(); }
             emit q->changed();
         });
         QObject::connect(&access, &AccessStore::changed, q, [this] {
@@ -236,7 +249,8 @@ public:
             terminalTasks = std::make_unique<TerminalTasks>(access, sessions, *terminal, instance, logCursorKey, q);
             started = true;
             status = "Starting";
-            io.start(listenPort);
+            io.start(listenPort, listenAddress == QStringLiteral("127.0.0.1")
+                ? QString{} : listenAddress);
         }
     }
     void stop()
@@ -793,6 +807,8 @@ public:
     QString instanceDirectory;
     QString instance;
     QString address;
+    QString loopbackAddress;
+    QString listenAddress{QStringLiteral("127.0.0.1")};
     QString status{"Disabled"};
     AccessStore access;
     SessionDirectory sessions;
@@ -848,8 +864,8 @@ public:
 };
 
 Service::Service(QString stateDir, QString runtimeDir, std::unique_ptr<CredentialStore> credentials, QObject* parent, quint16 port,
-                 std::shared_ptr<Resources::ResourceSharingService> resources)
-    : QObject(parent), _impl(std::make_unique<Impl>(this, std::move(stateDir), std::move(runtimeDir), std::move(credentials), port, std::move(resources))) {}
+                 QString listenAddress, std::shared_ptr<Resources::ResourceSharingService> resources)
+    : QObject(parent), _impl(std::make_unique<Impl>(this, std::move(stateDir), std::move(runtimeDir), std::move(credentials), port, std::move(listenAddress), std::move(resources))) {}
 Service::~Service() { stop(); }
 AccessStore& Service::access() { return _impl->access; }
 SessionDirectory& Service::directory() { return _impl->sessions; }
@@ -863,6 +879,63 @@ void Service::setHistorySource(Recording::HistoryService* source) { _impl->histo
 QString Service::instanceId() const { return _impl->instance; }
 QString Service::endpoint() const { return _impl->address; }
 QString Service::httpEndpoint() const { return _impl->listening ? _impl->address : QString{}; }
+QStringList Service::httpEndpoints() const
+{
+    QStringList result;
+    if (_impl->loopbackAddress.isEmpty()) return result;
+    result.append(_impl->loopbackAddress);
+    if (!_impl->address.isEmpty() && _impl->address != _impl->loopbackAddress)
+        result.append(_impl->address);
+    return result;
+}
+QString Service::listenAddress() const { return _impl->listenAddress; }
+QStringList Service::availableLanAddresses()
+{
+    QStringList result;
+    const auto interfaces = QNetworkInterface::allInterfaces();
+    for (const auto& interface : interfaces) {
+        const auto flags = interface.flags();
+        if (!(flags & QNetworkInterface::IsUp) || !(flags & QNetworkInterface::IsRunning)
+            || (flags & QNetworkInterface::IsLoopBack))
+            continue;
+        for (const auto& entry : interface.addressEntries()) {
+            const auto address = entry.ip();
+            if (address.protocol() != QAbstractSocket::IPv4Protocol || address.isLoopback()
+                || address.isLinkLocal())
+                continue;
+            const auto text = address.toString();
+            if (!result.contains(text)) result.append(text);
+        }
+    }
+    result.sort();
+    return result;
+}
+bool Service::setListenAddress(const QString& address)
+{
+    auto normalized = address.trimmed();
+    if (normalized.isEmpty()
+        || normalized.compare(QStringLiteral("localhost"), Qt::CaseInsensitive) == 0)
+        normalized = QStringLiteral("127.0.0.1");
+    const QHostAddress candidate(normalized);
+    if (candidate.isNull()) return false;
+    if (candidate.isLoopback()) normalized = QStringLiteral("127.0.0.1");
+    if (!candidate.isLoopback() && !availableLanAddresses().contains(candidate.toString()))
+        return false;
+    if (normalized == _impl->listenAddress) return true;
+    _impl->listenAddress = normalized;
+    if (_impl->started) {
+        // 地址切换会重建监听 socket；现有 MCP 连接随旧 socket 一起断开。
+        _impl->io.stop();
+        _impl->listening = false;
+        _impl->address.clear();
+        _impl->loopbackAddress.clear();
+        _impl->status = QStringLiteral("Starting");
+        _impl->io.start(_impl->listenPort, normalized == QStringLiteral("127.0.0.1")
+            ? QString{} : normalized);
+    }
+    emit changed();
+    return true;
+}
 QString Service::status() const { return _impl->status; }
 void Service::stop() { _impl->stop(); }
 QJsonObject Service::clientConfiguration() const

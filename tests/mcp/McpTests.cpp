@@ -538,6 +538,31 @@ private slots:
         QVERIFY(dialog.findChild<QPushButton*>("mcpRotateAccessToken"));
         QVERIFY(!dialog.findChild<QPlainTextEdit*>());
         QVERIFY(!dialog.findChild<QTreeWidget*>("mcpSavedTargets"));
+        auto* lanAccess = dialog.findChild<QCheckBox*>("mcpLanAccess");
+        auto* listenAddress = dialog.findChild<QComboBox*>("mcpListenAddress");
+        QVERIFY(lanAccess);
+        QVERIFY(listenAddress);
+        QVERIFY(!lanAccess->isChecked());
+        QVERIFY(!listenAddress->isEnabled());
+    }
+    void serviceListenAddressSelection()
+    {
+        Fixture f;
+        const auto addresses = NovaTerm::Mcp::Service::availableLanAddresses();
+        if (addresses.isEmpty())
+            QSKIP("No LAN IPv4 address available");
+        QCOMPARE(f.service.listenAddress(), QStringLiteral("127.0.0.1"));
+        QVERIFY(f.enable());
+        QTRY_COMPARE(f.service.status(), QStringLiteral("Listening"));
+        QCOMPARE(f.service.httpEndpoints().size(), 1);
+        QVERIFY(f.service.setListenAddress(addresses.first()));
+        QTRY_COMPARE(f.service.status(), QStringLiteral("Listening"));
+        QVERIFY(f.service.httpEndpoint().contains(addresses.first()));
+        QCOMPARE(f.service.httpEndpoints().size(), 2);
+        QVERIFY(f.service.setListenAddress(QStringLiteral("127.0.0.1")));
+        QTRY_COMPARE(f.service.status(), QStringLiteral("Listening"));
+        QCOMPARE(f.service.httpEndpoints().size(), 1);
+        QVERIFY(!f.service.setListenAddress(QStringLiteral("192.0.2.1")));
     }
     void settingsDialogAutomaticallyCreatesAccess()
     {

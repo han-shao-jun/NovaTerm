@@ -164,6 +164,10 @@ add_subdirectory(resources)
         ${PROJECT_SOURCE_DIR}/src/ui/models/SessionPermissionModel.h
         ${PROJECT_SOURCE_DIR}/src/ui/models/SettingsController.cpp
         ${PROJECT_SOURCE_DIR}/src/ui/models/SettingsController.h
+        ${PROJECT_SOURCE_DIR}/src/service/ConfigManager.cpp
+        ${PROJECT_SOURCE_DIR}/src/service/ConfigManager.h
+        ${PROJECT_SOURCE_DIR}/src/service/TerminalSchemeStore.cpp
+        ${PROJECT_SOURCE_DIR}/src/service/TerminalSchemeStore.h
         ${PROJECT_SOURCE_DIR}/src/session/TerminalSession.cpp
         ${PROJECT_SOURCE_DIR}/src/session/TerminalSession.h
         ${PROJECT_SOURCE_DIR}/src/session/SftpSession.cpp

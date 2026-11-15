@@ -253,8 +253,9 @@ B3基础恢复保留旧inputToken/replyToExecutionId/operationId保护、CR/LF/C
 
 ## 2. HTTP接入和两代生命周期
 
-- NovaTerm进程拥有Qt HTTP Server，默认关闭，只监听127.0.0.1；默认http://127.0.0.1:38973/mcp。
+- NovaTerm进程拥有Qt HTTP Server，默认关闭，默认只监听127.0.0.1；默认http://127.0.0.1:38973/mcp。
 - 启动应用前用NOVATERM_MCP_HTTP_PORT覆盖端口；占用明确报错，不自动换实例或端口。
+- MCP设置页可显式开启局域网访问并选择本机网卡地址：服务端保留回环监听并额外绑定该地址，导出的配置使用所选地址；不监听0.0.0.0。Host/Origin只接受当前连接实际命中的本机地址。
 - 每个请求校验Bearer、Host/Origin；MCP-Session-Id/clientInfo.name不能代替身份。客户端必须使用该实例导出的配置。
 - 不自动启动NovaTerm、新建终端、登录服务器或复活已删除的novaterm-mcp/LocalMcpServer。
 - 2025-11-25：initialize/initialized建立协议会话，后续带MCP-Session-Id；SSE承载响应；普通TCP断开不等于业务取消，DELETE结束会话。

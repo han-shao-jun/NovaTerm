@@ -6,7 +6,9 @@
 #include "mcp/CapabilityAdapter.h"
 #include "ui/models/SettingsController.h"
 #include "session/SessionTerminalController.h"
+#include "service/ConfigManager.h"
 #include "ElaCheckBox.h"
+#include "ElaComboBox.h"
 #include "ElaLineEdit.h"
 #include "ElaPushButton.h"
 #include "ElaText.h"
@@ -162,11 +164,22 @@ McpSettingsDialog::McpSettingsDialog(NovaTerm::Mcp::Service* service, QWidget* p
     layout->setContentsMargins(16, 8, 16, 16);
     layout->setSpacing(10);
     _enabled = new ElaCheckBox(tr("Enable local MCP access"), this);
-    layout->addWidget(_enabled);
-    auto* explanation = new ElaText(tr("所有 AI 共用此接入令牌及授权。会话的读取、输入、托管提权和清空权限默认开启，可取消勾选；终端输出可能包含敏感信息。"), this);
-    explanation->setWordWrap(true);
-    explanation->setTextPixelSize(12);
-    layout->addWidget(explanation);
+    // 顶部单行：总开关、局域网开关和监听地址选择。
+    auto* topRow = new QHBoxLayout;
+    topRow->addWidget(_enabled);
+    topRow->addSpacing(24);
+    _lanAccess = new ElaCheckBox(tr("允许局域网访问"), this);
+    _lanAccess->setObjectName("mcpLanAccess");
+    topRow->addWidget(_lanAccess);
+    topRow->addSpacing(16);
+    _listenAddress = new ElaComboBox(this);
+    _listenAddress->setObjectName("mcpListenAddress");
+    _listenAddress->setMinimumWidth(240);
+    _listenAddress->setToolTip(tr("监听地址"));
+    _listenAddress->setAccessibleName(tr("监听地址"));
+    topRow->addWidget(_listenAddress);
+    topRow->addStretch();
+    layout->addLayout(topRow);
     _status = new ElaText(this);
     _status->setWordWrap(true);
     _status->setTextPixelSize(12);
@@ -215,6 +228,24 @@ McpSettingsDialog::McpSettingsDialog(NovaTerm::Mcp::Service* service, QWidget* p
     });
     connect(_enabled, &QCheckBox::toggled, this, [this](bool enabled) {
         if (!_refreshing && _controller && !_controller->setEnabled(enabled)) { refresh(); reportFailure(); }
+    });
+    connect(_lanAccess, &QCheckBox::toggled, this, [this](bool enabled) {
+        if (_refreshing || !_service) return;
+        if (!enabled) { applyListenAddress(QStringLiteral("127.0.0.1")); return; }
+        auto address = _listenAddress->currentData().toString();
+        if (address.isEmpty() || address == QStringLiteral("127.0.0.1")) {
+            if (_listenAddress->count() < 2) {
+                refresh();
+                _status->setText(tr("未找到可用的局域网地址。"));
+                return;
+            }
+            address = _listenAddress->itemData(1).toString();
+        }
+        applyListenAddress(address);
+    });
+    connect(_listenAddress, QOverload<int>::of(&ElaComboBox::currentIndexChanged), this, [this](int) {
+        if (_refreshing || !_service || !_lanAccess->isChecked()) return;
+        applyListenAddress(_listenAddress->currentData().toString());
     });
     connect(rotate, &QPushButton::clicked, this, [this] {
         if (!_controller || !_controller->rotateToken()) { reportFailure(); return; }
@@ -462,18 +493,52 @@ void McpSettingsDialog::reportFailure()
     }
     _status->setText(tr("Operation failed. Check access settings, storage permissions, and active commands."));
 }
+void McpSettingsDialog::applyListenAddress(const QString& address)
+{
+    if (!_service) return;
+    const auto normalized = address.trimmed().isEmpty()
+        ? QStringLiteral("127.0.0.1") : address.trimmed();
+    if (!_service->setListenAddress(normalized)) {
+        refresh();
+        _status->setText(tr("无法监听所选地址；请确认该地址仍属于本机且端口可用。"));
+        return;
+    }
+    const bool lan = normalized != QStringLiteral("127.0.0.1");
+    static_cast<void>(ConfigManager::setValues({{QStringLiteral("mcp.lanAccess"), lan},
+                                                {QStringLiteral("mcp.listenAddress"), normalized}}));
+    refresh();
+    if (lan)
+        _status->setText(_status->text() + '\n'
+            + tr("已切换监听地址；现有 MCP 客户端连接已断开，需要重新连接。"));
+}
 void McpSettingsDialog::refresh()
 {
     if (_refreshing || !_service) return;
     _refreshing = true;
-    const QSignalBlocker sessionsBlocker(_sessions), enabledBlocker(_enabled);
+    const QSignalBlocker sessionsBlocker(_sessions), enabledBlocker(_enabled),
+        lanBlocker(_lanAccess), addressBlocker(_listenAddress);
     _enabled->setChecked(_controller->enabled());
+    // 监听地址：未启用局域网时显示保存的局域网候选，但服务端仍只监听回环。
+    const auto lanAddresses = NovaTerm::Mcp::Service::availableLanAddresses();
+    const auto currentAddress = _service->listenAddress();
+    const bool lanEnabled = currentAddress != QStringLiteral("127.0.0.1");
+    _listenAddress->clear();
+    _listenAddress->addItem(tr("仅本机（127.0.0.1）"), QStringLiteral("127.0.0.1"));
+    for (const auto& address : lanAddresses)
+        _listenAddress->addItem(address, address);
+    auto selected = lanEnabled ? currentAddress : QStringLiteral("127.0.0.1");
+    int addressIndex = _listenAddress->findData(selected);
+    if (addressIndex < 0) addressIndex = 0;
+    _listenAddress->setCurrentIndex(addressIndex);
+    _listenAddress->setEnabled(lanEnabled && !lanAddresses.isEmpty());
+    _lanAccess->setChecked(lanEnabled);
+    _lanAccess->setEnabled(!lanAddresses.isEmpty() || lanEnabled);
     QString state = _service->status();
     if (state == "Disabled") state = tr("Disabled");
     else if (state == "Listening") state = tr("Listening");
     else if (state == "Starting") state = tr("Starting");
     QString statusText = tr("Status: %1; instance: %2").arg(state, _service->instanceId());
-    if (!_service->httpEndpoint().isEmpty()) statusText += '\n' + _service->httpEndpoint();
+    for (const auto& endpoint : _service->httpEndpoints()) statusText += '\n' + endpoint;
     _status->setText(statusText);
     const auto clientId = _service->access().accessId();
     _accessIdentity = _service->access().identityVersion(clientId);

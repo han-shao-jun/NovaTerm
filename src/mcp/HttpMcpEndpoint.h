@@ -21,7 +21,7 @@ public:
     };
     explicit HttpMcpEndpoint(Backend backend, QObject *parent = nullptr);
     ~HttpMcpEndpoint() override;
-    void start(quint16 port);
+    void start(quint16 port, const QString &lanAddress = {});
     void stop();
     [[nodiscard]] bool send(const QString &peer, const QJsonObject &message);
     void closeConnection(const QString &peer);

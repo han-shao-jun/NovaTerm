@@ -391,11 +391,11 @@ HttpMcpEndpoint::~HttpMcpEndpoint()
         delete wire;
     }
 }
-void HttpMcpEndpoint::start(quint16 port)
+void HttpMcpEndpoint::start(quint16 port, const QString &lanAddress)
 {
     _impl->stopping = false;
     _impl->timer.start();
-    _impl->io.start(port);
+    _impl->io.start(port, lanAddress);
 }
 void HttpMcpEndpoint::stop() { _impl->stop(); }
 bool HttpMcpEndpoint::send(const QString &peer, const QJsonObject &message)

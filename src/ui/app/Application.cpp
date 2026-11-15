@@ -157,8 +157,13 @@ void Application::init()
     const uint configuredPort = portSetting.toUInt(&validPort);
     const quint16 mcpPort = validPort && configuredPort > 0 && configuredPort <= 65535
         ? quint16(configuredPort) : quint16(38973);
+    // 默认仅回环；显式启用局域网访问时才恢复保存的网卡地址，地址已失效则回退。
+    const bool mcpLanAccess = ConfigManager::get<bool>("mcp.lanAccess", false);
+    QString mcpListenAddress = ConfigManager::get<QString>("mcp.listenAddress", QStringLiteral("127.0.0.1")).trimmed();
+    if (!mcpLanAccess || !NovaTerm::Mcp::Service::availableLanAddresses().contains(mcpListenAddress))
+        mcpListenAddress = QStringLiteral("127.0.0.1");
     _mcpService = std::make_unique<NovaTerm::Mcp::Service>(
-        QString{}, QString{}, nullptr, nullptr, mcpPort);
+        QString{}, QString{}, nullptr, nullptr, mcpPort, mcpListenAddress);
     _resourceSharing = _mcpService->resources();
     _historyRuntime = std::make_shared<NovaTerm::HistoryCompressionService>();
     _historyRecording = std::make_unique<NovaTerm::Recording::HistoryService>(

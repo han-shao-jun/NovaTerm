@@ -20,8 +20,11 @@ public:
     explicit HttpMcpServer(QObject *parent = nullptr);
     ~HttpMcpServer() override;
 
-    /** @brief 在独立 I/O 线程监听；0 表示由系统分配端口。 */
-    void start(quint16 port = 0);
+    /**
+     * @brief 在独立 I/O 线程监听；0 表示由系统分配端口。
+     * @param lanAddress 非空时在回环之外额外绑定该本机地址；空值保持仅回环。
+     */
+    void start(quint16 port = 0, const QString &lanAddress = {});
     /** @brief 同步停止并回收 I/O 线程；不依赖 GUI 事件处理。 */
     void stop();
     /**

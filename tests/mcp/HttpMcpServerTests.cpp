@@ -8,6 +8,7 @@
 #include <QSignalSpy>
 #include <QTcpSocket>
 #include <QNetworkProxy>
+#include <QNetworkInterface>
 #include <QTest>
 #include <QUrl>
 #include <QElapsedTimer>
@@ -73,6 +74,7 @@ private slots:
     void sameSourcePortPeersRemainIndependent();
     void closingSameSourcePortPeerKeepsOtherPeer();
     void sameSourcePortSocketsRespectLimit();
+    void lanAddressBindsAlongsideLoopback();
     void expectContinueBeforeBody_data();
     void expectContinueBeforeBody();
     void stopResetsLiveSocketsAndPreservesPeak();
@@ -210,6 +212,59 @@ void HttpMcpServerTests::sameSourcePortSocketsRespectLimit()
     collect(overflow);
     QCOMPARE(overflow.state(), QAbstractSocket::UnconnectedState);
     QCOMPARE(server.statistics().value("peakSockets").toInt(), 16);
+}
+
+void HttpMcpServerTests::lanAddressBindsAlongsideLoopback()
+{
+    QString lanAddress;
+    for (const auto& interface : QNetworkInterface::allInterfaces()) {
+        const auto flags = interface.flags();
+        if (!(flags & QNetworkInterface::IsUp) || !(flags & QNetworkInterface::IsRunning)
+            || (flags & QNetworkInterface::IsLoopBack))
+            continue;
+        for (const auto& entry : interface.addressEntries()) {
+            const auto address = entry.ip();
+            if (address.protocol() == QAbstractSocket::IPv4Protocol && !address.isLoopback()
+                && !address.isLinkLocal()) {
+                lanAddress = address.toString();
+                break;
+            }
+        }
+        if (!lanAddress.isEmpty()) break;
+    }
+    if (lanAddress.isEmpty())
+        QSKIP("No LAN IPv4 address available");
+
+    HttpMcpServer server;
+    QSignalSpy listening(&server, &HttpMcpServer::listening);
+    server.start(0, lanAddress);
+    if (listening.isEmpty() && !listening.wait(3000))
+        QSKIP("LAN address bind did not report");
+    if (!listening.first().at(0).toBool())
+        QSKIP("LAN address cannot be bound on this host");
+    const auto url = QUrl(listening.first().at(1).toString());
+    QVERIFY(url.port() > 0);
+    QCOMPARE(url.host(), lanAddress);
+
+    QSignalSpy requests(&server, &HttpMcpServer::request);
+    QTcpSocket loopback;
+    loopback.connectToHost(QHostAddress::LocalHost, quint16(url.port()));
+    QVERIFY(loopback.waitForConnected());
+    loopback.write(getRequest(url.port()));
+    loopback.flush();
+    QTRY_COMPARE(requests.size(), 1);
+    QVERIFY(server.respond(requests.at(0).at(0).toString(), 200));
+    QVERIFY(collect(loopback).startsWith("HTTP/1.1 200 "));
+
+    QTcpSocket lan;
+    lan.connectToHost(QHostAddress(lanAddress), quint16(url.port()));
+    QVERIFY(lan.waitForConnected());
+    lan.write("POST /mcp HTTP/1.1\r\nHost: " + lanAddress.toLatin1() + ':'
+        + QByteArray::number(url.port()) + "\r\nContent-Length: 0\r\n\r\n");
+    lan.flush();
+    QTRY_COMPARE(requests.size(), 2);
+    QVERIFY(server.respond(requests.at(1).at(0).toString(), 202));
+    QVERIFY(collect(lan).startsWith("HTTP/1.1 202 "));
 }
 
 void HttpMcpServerTests::expectContinueBeforeBody_data()

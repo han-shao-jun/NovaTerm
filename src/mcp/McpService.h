@@ -5,6 +5,7 @@
 #include "McpAccess.h"
 #include "FileTransfers.h"
 #include <QJsonArray>
+#include <QStringList>
 #include <memory>
 namespace NovaTerm::Recording { class HistoryService; }
 namespace NovaTerm::Resources { class ResourceSharingService; }
@@ -19,6 +20,7 @@ class Service final : public QObject
 public:
     explicit Service(QString stateDirectory = {}, QString instanceDirectory = {},
                      std::unique_ptr<CredentialStore> credentials = {}, QObject* parent = nullptr, quint16 port = 0,
+                     QString listenAddress = {},
                      std::shared_ptr<Resources::ResourceSharingService> resources = {});
     ~Service() override;
     [[nodiscard]] AccessStore& access();
@@ -33,6 +35,14 @@ public:
     [[nodiscard]] QString instanceId() const;
     [[nodiscard]] QString endpoint() const;
     [[nodiscard]] QString httpEndpoint() const;
+    /** @brief 当前所有监听 URL；启用局域网时依次为回环和局域网地址。 */
+    [[nodiscard]] QStringList httpEndpoints() const;
+    /** @brief 当前监听地址；仅回环时返回 127.0.0.1。 */
+    [[nodiscard]] QString listenAddress() const;
+    /** @brief 切换监听地址（127.0.0.1 或本机局域网地址）；会重建 HTTP 监听。 */
+    [[nodiscard]] bool setListenAddress(const QString &address);
+    /** @brief 可供选择的本机局域网 IPv4 地址（不含回环/链路本地）。 */
+    [[nodiscard]] static QStringList availableLanAddresses();
     [[nodiscard]] QString status() const;
     [[nodiscard]] QJsonObject clientConfiguration() const;
     [[nodiscard]] QJsonObject ccSwitchConfiguration() const;

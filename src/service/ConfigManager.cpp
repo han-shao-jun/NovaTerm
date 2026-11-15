@@ -268,6 +268,11 @@ QJsonObject ConfigManager::defaults()
             {"historyCompression", QJsonObject{{"enabled", false}}}
         }},
         {"schemes", QJsonArray{}},
+        {"mcp", QJsonObject{
+            // 默认仅回环；局域网访问必须由用户在 MCP 设置中显式开启并选择地址。
+            {"lanAccess", false},
+            {"listenAddress", "127.0.0.1"}
+        }},
         {"monitor", QJsonObject{
             {"fastIntervalMs", 2000}
         }},

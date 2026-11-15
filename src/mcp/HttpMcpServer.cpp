@@ -6,6 +6,7 @@
 #include "McpProtocol.h"
 #include "core/ThreadNaming.h"
 #include <QAbstractHttpServer>
+#include <QAbstractSocket>
 #include <QElapsedTimer>
 #include <QDeadlineTimer>
 #include <QHash>
@@ -82,12 +83,36 @@ bool decimal(const QByteArray &value, quint64 &result)
     return true;
 }
 
-bool allowedHost(const QByteArray &value, quint16 port)
+/** @brief Host/Origin 中 IPv6 字面量必须带方括号。 */
+QString hostFor(const QHostAddress &address)
+{
+    const auto text = address.toString();
+    return address.protocol() == QAbstractSocket::IPv6Protocol
+        ? QStringLiteral("[") + text + QStringLiteral("]") : text;
+}
+
+bool hostEquals(const QByteArray &host, const QString &name, quint16 port)
+{
+    const auto expected = name.toLower().toLatin1();
+    return host == expected + ':' + QByteArray::number(port)
+        || (port == 80 && host == expected);
+}
+
+/**
+ * @brief 只接受当前连接实际命中的本机地址。
+ *
+ * 以 accepted socket 的 localAddress 为准，不维护全局白名单，既支持额外绑定
+ * 局域网地址，也保留防 DNS rebinding 的 Host/Origin 约束。回环连接仍接受
+ * 127.0.0.1、localhost 和本机 IPv6 回环写法。
+ */
+bool allowedHost(const QByteArray &value, const QHostAddress &localAddress, quint16 port)
 {
     const auto host = value.toLower();
-    const auto suffix = QByteArray(":") + QByteArray::number(port);
-    return host == "127.0.0.1" + suffix || host == "localhost" + suffix ||
-           (port == 80 && (host == "127.0.0.1" || host == "localhost"));
+    if (localAddress.isLoopback())
+        return hostEquals(host, QStringLiteral("127.0.0.1"), port)
+            || hostEquals(host, QStringLiteral("localhost"), port)
+            || hostEquals(host, hostFor(localAddress), port);
+    return hostEquals(host, hostFor(localAddress), port);
 }
 
 struct Credit {
@@ -212,6 +237,8 @@ public:
     {
         _shuttingDown = true;
         _server->close();
+        if (_lanServer)
+            _lanServer->close();
         // responder 的析构会回调 Qt 的协议处理器，必须在 socket 销毁前完成。
         const auto peers = _peers.values();
         for (const auto &peer : peers)
@@ -221,15 +248,31 @@ public:
                 peer->socket->abort();
         _peers.clear();
     }
-    void start(quint16 port)
+    void start(quint16 port, const QString &lanAddress)
     {
-        const bool ok = _server->listen(QHostAddress::LocalHost, port) && bind(_server);
-        enqueue(
-            {Event::Kind::Listening,
-             ok ? QStringLiteral("http://127.0.0.1:%1/mcp").arg(_server->serverPort()) : QString(),
-             {},
-             0,
-             ok});
+        bool ok = _server->listen(QHostAddress::LocalHost, port) && bind(_server);
+        const quint16 actualPort = _server->serverPort();
+        const QHostAddress lan(lanAddress.trimmed());
+        if (ok && !lanAddress.trimmed().isEmpty()) {
+            // 回环与所选局域网地址各监听一个 socket；任一失败都按整体启动失败处理，
+            // 避免界面显示已监听但所选地址实际不可达。
+            _lanServer = new AcceptServer(this);
+            _lanServer->setMaxPendingConnections(SocketLimit);
+            ok = !lan.isNull() && !lan.isLoopback() && actualPort != 0
+                && _lanServer->listen(lan, actualPort) && bind(_lanServer);
+            if (!ok) {
+                _lanServer->close();
+                delete _lanServer;
+                _lanServer = nullptr;
+                _server->close();
+            }
+        }
+        QString url;
+        if (ok) {
+            const auto primary = _lanServer ? lan : QHostAddress(QHostAddress::LocalHost);
+            url = QStringLiteral("http://%1:%2/mcp").arg(hostFor(primary)).arg(actualPort);
+        }
+        enqueue({Event::Kind::Listening, url, {}, 0, ok});
     }
     void accept(qintptr descriptor)
     {
@@ -421,7 +464,8 @@ private:
         }
         peer->socket->disconnectFromHost();
     }
-    int validatePrefix(const QByteArray &prefix, quint16 port) const
+    int validatePrefix(const QByteArray &prefix, const QHostAddress &localAddress,
+                       quint16 port) const
     {
         const auto lines = prefix.split('\n');
         if (lines.isEmpty() || !lines.first().endsWith(" HTTP/1.1\r"))
@@ -443,11 +487,11 @@ private:
                 return 400;
             fields.insert(name, value);
         }
-        if (!allowedHost(fields.value("host"), port))
+        if (!allowedHost(fields.value("host"), localAddress, port))
             return 400;
         if (fields.contains("origin")) {
             const auto origin = fields.value("origin").toLower();
-            if (!origin.startsWith("http://") || !allowedHost(origin.mid(7), port))
+            if (!origin.startsWith("http://") || !allowedHost(origin.mid(7), localAddress, port))
                 return 403;
         }
         if (fields.contains("content-length")) {
@@ -589,7 +633,8 @@ private:
                     return;
                 }
                 const auto prefix = peer->socket->raw.left(peer->headerEnd);
-                const int error = validatePrefix(prefix, _server->serverPort());
+                const int error = validatePrefix(prefix, peer->socket->localAddress(),
+                                                 peer->socket->localPort());
                 if (error) {
                     reject(peer, error);
                     return;
@@ -769,6 +814,7 @@ private:
     }
     std::shared_ptr<Queues> _queues;
     AcceptServer *_server;
+    AcceptServer *_lanServer{nullptr};
     QHash<PeerEndpoint, std::shared_ptr<Peer>> _peers;
     QElapsedTimer _clock;
     QTimer _timer;
@@ -782,6 +828,7 @@ class IoThread final : public QThread
 public:
     std::shared_ptr<Queues> queues;
     quint16 port{0};
+    QString lanAddress;
     void run() override
     {
         NovaTerm::setCurrentThreadName(IoThreadName);
@@ -790,7 +837,7 @@ public:
             std::lock_guard<std::mutex> lock(queues->mutex);
             queues->worker = &worker;
         }
-        worker.start(port);
+        worker.start(port, lanAddress);
         exec();
         std::lock_guard<std::mutex> lock(queues->mutex);
         queues->worker = nullptr;
@@ -820,7 +867,7 @@ QJsonObject HttpMcpServer::statistics() const
             {"acceptedRequests", QString::number(queues.acceptedRequests)},
             {"rejectedRequests", QString::number(queues.rejectedRequests)}};
 }
-void HttpMcpServer::start(quint16 port)
+void HttpMcpServer::start(quint16 port, const QString &lanAddress)
 {
     if (_impl->thread && _impl->thread->isRunning()) return;
     const auto previous = _impl->queues;
@@ -838,6 +885,7 @@ void HttpMcpServer::start(quint16 port)
     _impl->thread = std::make_unique<IoThread>();
     _impl->thread->queues = queues;
     _impl->thread->port = port;
+    _impl->thread->lanAddress = lanAddress;
     _impl->thread->setObjectName(QString::fromLatin1(IoThreadName));
     _impl->thread->start();
 }
