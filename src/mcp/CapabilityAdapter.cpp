@@ -64,6 +64,8 @@ QJsonObject capabilityMetadata(const CapabilitySnapshot& capability)
         {"permissions", QJsonObject{{"readOutput", capability.permissions.read},
             {"clearTerminal", capability.permissions.clearTerminal},
             {"terminalInput", capability.terminalInputAvailable},
+            {"relaxedPermissions", capability.permissions.relaxedPermissions
+                && capability.terminalInputAvailable},
             {"useElevation", capability.terminalInputAvailable && capability.permissions.elevation}}},
         {"availability", QJsonObject{{"inputAvailable", capability.terminalInputAvailable},
             {"disabledReason", capability.terminalInputDisabledReason},

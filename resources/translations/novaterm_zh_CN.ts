@@ -832,6 +832,18 @@ Built with:
         <translation>须先共享读取且会话已连接。独立允许清空本机屏幕或滚动历史，影响人的本机显示；不向设备发送字节、不停止远端程序，也不删除独立历史录制。新建或重连后的连接默认允许，可在此取消授权。</translation>
     </message>
     <message>
+        <source>宽松权限</source>
+        <translation>宽松权限</translation>
+    </message>
+    <message>
+        <source>普通命令已授权，AI 无需逐条询问；客户端强制审批仍由客户端控制。</source>
+        <translation>普通命令已授权，AI 无需逐条询问；客户端强制审批仍由客户端控制。</translation>
+    </message>
+    <message>
+        <source>须先允许执行命令。勾选后，当前任务内的普通命令一律放行，AI 无需逐条询问；客户端强制审批仍由客户端控制。默认关闭，撤销读取或执行权限、重连后取消。不自动应答终端提示，不扩大提权、破坏性操作或上传授权。</source>
+        <translation>须先允许执行命令。勾选后，当前任务内的普通命令一律放行，AI 无需逐条询问；客户端强制审批仍由客户端控制。默认关闭，撤销读取或执行权限、重连后取消。不自动应答终端提示，不扩大提权、破坏性操作或上传授权。</translation>
+    </message>
+    <message>
         <source>清除上传确认记忆</source>
         <translation>清除上传确认记忆</translation>
     </message>

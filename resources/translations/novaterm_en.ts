@@ -822,6 +822,18 @@ Built with:
         <translation>Requires read permission and a connected session. Allows clearing the local screen or scrollback, affecting the local display. Sends no bytes to the device, stops no remote program, and deletes no independent recording. Enabled by default for new or reconnected sessions; uncheck here to revoke.</translation>
     </message>
     <message>
+        <source>宽松权限</source>
+        <translation>Relaxed permissions</translation>
+    </message>
+    <message>
+        <source>普通命令已授权，AI 无需逐条询问；客户端强制审批仍由客户端控制。</source>
+        <translation>Ordinary commands are preauthorized; the AI need not ask each time. Mandatory client approvals remain under client control.</translation>
+    </message>
+    <message>
+        <source>须先允许执行命令。勾选后，当前任务内的普通命令一律放行，AI 无需逐条询问；客户端强制审批仍由客户端控制。默认关闭，撤销读取或执行权限、重连后取消。不自动应答终端提示，不扩大提权、破坏性操作或上传授权。</source>
+        <translation>Requires command execution permission. Preauthorizes ordinary commands within the current task without conversational confirmation; mandatory client approvals remain under client control. Off by default; cleared on read/input revocation or reconnection. Does not answer terminal prompts or extend authorization for elevation, destructive operations, or uploads.</translation>
+    </message>
+    <message>
         <source>清除上传确认记忆</source>
         <translation>Clear upload confirmation memory</translation>
     </message>

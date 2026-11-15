@@ -2,7 +2,7 @@
  * @file Permissions.h
  * @brief 独立权限选择、授权快照与单项授权修改请求。
  *
- * 读取、完整终端输入、托管提权与清屏分别授权；界面与业务只提交带连接
+ * 读取、完整终端输入、托管提权、清屏与普通命令宽松预授权分别选择；界面与业务只提交带连接
  * 绑定和预期行版本的单项修改，不再整组回写。
  */
 #pragma once
@@ -19,6 +19,7 @@ enum class PermissionKind
     FullTerminalInput,
     ManagedElevation,
     ClearTerminal,
+    RelaxedPermissions,
 };
 
 /** @brief 一个客户端在一个会话上的权限选择。 */
@@ -28,13 +29,15 @@ struct PermissionSelection
     bool fullTerminalInput{false};
     bool elevation{false};
     bool clearTerminal{false}; ///< 仅清除本机终端缓存；完整输入授权不隐含此权限。
+    bool relaxedPermissions{false}; ///< 本次连接的普通命令已预授权，AI 无需逐条询问；不覆盖客户端审批。
 
     friend bool operator==(const PermissionSelection& left, const PermissionSelection& right)
     {
         return left.read == right.read
             && left.fullTerminalInput == right.fullTerminalInput
             && left.elevation == right.elevation
-            && left.clearTerminal == right.clearTerminal;
+            && left.clearTerminal == right.clearTerminal
+            && left.relaxedPermissions == right.relaxedPermissions;
     }
     friend bool operator!=(const PermissionSelection& left, const PermissionSelection& right)
     {

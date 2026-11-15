@@ -58,6 +58,7 @@ GrantSnapshot AuthorizationService::snapshot(const ClientId& client,
         view.selection.fullTerminalInput = false;
         view.selection.elevation = false;
         view.selection.clearTerminal = false;
+        view.selection.relaxedPermissions = false;
     }
     return view;
 }
@@ -88,10 +89,11 @@ Result<GrantSnapshot, AuthorizationError> AuthorizationService::change(
     PermissionSelection selection = rowApplies ? row->selection : PermissionSelection{};
     if (rowApplies && !executionBindingMatches(row->binding, facts.binding)) {
         // 同一目标重连后，界面再次提交的修改以新连接为准：读取保留，
-        // 完整输入、提权与清空必须重新授权。
+        // 完整输入、提权、清空与宽松权限必须重新授权。
         selection.fullTerminalInput = false;
         selection.elevation = false;
         selection.clearTerminal = false;
+        selection.relaxedPermissions = false;
     }
 
     AuthorizationRejection invalid = AuthorizationRejection::None;
@@ -102,6 +104,7 @@ Result<GrantSnapshot, AuthorizationError> AuthorizationService::change(
             selection.fullTerminalInput = false;
             selection.elevation = false;
             selection.clearTerminal = false;
+            selection.relaxedPermissions = false;
         }
         break;
     case PermissionKind::FullTerminalInput:
@@ -116,7 +119,21 @@ Result<GrantSnapshot, AuthorizationError> AuthorizationService::change(
         } else {
             selection.fullTerminalInput = false;
             selection.elevation = false;
+            selection.relaxedPermissions = false;
         }
+        break;
+    case PermissionKind::RelaxedPermissions:
+        if (change.selected) {
+            if (!selection.fullTerminalInput) {
+                invalid = AuthorizationRejection::InvalidSelection;
+                break;
+            }
+            if (!readyForInput(facts)) {
+                invalid = AuthorizationRejection::SessionNotReady;
+                break;
+            }
+        }
+        selection.relaxedPermissions = change.selected;
         break;
     case PermissionKind::ManagedElevation:
         if (change.selected) {

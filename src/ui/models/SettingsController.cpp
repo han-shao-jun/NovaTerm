@@ -72,6 +72,8 @@ QVector<SessionPermissionRow> SettingsController::rows(const QString& clientId) 
         }
         row.elevationSelectable = row.capability.elevationGrantSelectable;
         row.clearTerminalSelectable = clearTerminalSelectable(entry, row.selection);
+        row.relaxedPermissionsSelectable = row.selection.relaxedPermissions
+            || (row.selection.fullTerminalInput && connectedSession(entry));
         row.sudoSaved = access.hasElevationCredential(entry, QStringLiteral("sudo"));
         row.suSaved = access.hasElevationCredential(entry, QStringLiteral("su"));
         row.credentialsPersistent = access.elevationCredentialsPersistent();
@@ -121,6 +123,8 @@ SettingsController::Outcome SettingsController::submit(const SessionPermissionRo
     outcome.row.revision = grant.revision;
     outcome.row.binding = grant.binding;
     outcome.row.clearTerminalSelectable = clearTerminalSelectable(*entry, grant.selection);
+    outcome.row.relaxedPermissionsSelectable = grant.selection.relaxedPermissions
+        || (grant.selection.fullTerminalInput && connectedSession(*entry));
     outcome.row.capability = sessionCapabilities(
         *entry, row.client.str(), _service->access());
     return outcome;

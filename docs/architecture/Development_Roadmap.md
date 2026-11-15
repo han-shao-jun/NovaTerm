@@ -52,6 +52,7 @@ P9 的协议库与测试独立于 P6/P8，先按 XMODEM → YMODEM → ZMODEM �
 [MCP当前接口契约](stages/P8_AI_MCP_Interface/02_Current_MCP_Contract.md)说明当前二十工具与保留接口的兼容边界；[实施与验收记录](stages/P8_AI_MCP_Interface/records/03_Implementation_and_Verification.md)保留历次结果及未收口目标；
 旧命令接口及其允许列表、风险确认和专属执行器已删除；现行完整输入不逐条确认，
 读取、输入、提权与清空四项授权在新就绪连接默认开启，用户可撤销。
+另提供默认关闭的会话宽松权限，向 AI 声明普通命令已预授权；客户端强制审批仍由客户端控制，真实客户端效果待验收。
 不向 MCP 开放密码读取，托管提权当前在取密/输入前拒绝。现有 P0～P7 状态不变。
 
 MCP 当前路线见 [总体架构](stages/P8_AI_MCP_Interface/00_Overall_Architecture.md)与[实施顺序](stages/P8_AI_MCP_Interface/01_Phases_and_Acceptance.md)。旧 mcp/P0～P8 方案已删除，B0～B4 专注外部 Agent 的 SSH/UART 开发调试闭环，不改变项目顶层阶段编号或历史验收事实。

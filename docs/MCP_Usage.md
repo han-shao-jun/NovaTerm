@@ -7,6 +7,19 @@ NovaTerm 提供进程内 Streamable HTTP MCP 服务，可让支持 MCP 的 AI �
 
 历史录制仍在主菜单 **历史录制** 中手动开始/停止。启用统一 MCP 后，已有录制可直接列出、读取、搜索，无须选择录制条目再逐条授权；关闭终端不删除历史。历史工具不自动启动录制或恢复设备连接。独立日志导入用于创建本次运行的分析资源，最多 16 MiB；可清除已导入资源。
 
+## 普通命令的宽松权限
+
+在“AI MCP 接入”的会话授权表中，先允许执行命令，再勾选该会话的“宽松权限”。
+这表示当前任务内的普通命令一律放行，AI 无需再通过对话逐条询问。此选择默认关闭，
+只对当前连接有效；撤销读取或执行权限、重连或停用 MCP 后取消。
+
+AI 从 `novaterm_list_sessions` 的 `permissions.relaxedPermissions` 读取当前状态，
+`Server.instructions` 在 initialize 与 discover 中统一说明其含义。修改授权后应重新查询会话列表；
+升级程序后客户端需重连以获取新指引。false 或缺少该字段不代表额外预授权，也不会启用 NovaTerm 逐条确认。
+
+此开关不能关闭客户端强制工具审批，不自动回答终端内的 y/n 或密码提示，
+不扩大破坏性操作、托管提权或文件上传授权。上传确认、会话身份/代际、输入就绪、人工接管和重试规则继续生效。
+
 ## 直接终端准入（2026-11-04）
 
 `novaterm_interact_terminal`、`novaterm_start_task` 和 `novaterm_request_elevation` 默认省略 `inputToken`。

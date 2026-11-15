@@ -107,6 +107,8 @@ private slots:
     void reconnectHidesExecutionButKeepsRead();
     void clearTerminalRequiresIndependentLiveReadGrant();
     void clearTerminalRejectsStaleRowsAndResetsWithBinding();
+    void relaxedPermissionsRequireInputAndResetOnRevocation();
+    void relaxedPermissionsRejectStaleRowsAndResetOnReconnect();
     void disabledOrUnknownClientIsRejected();
     void capabilitiesFollowGrantsAndFacts();
     void terminalInputReasonOrderIsStable();
@@ -154,6 +156,72 @@ void AuthorizationTests::sessionDefaultsRespectRevocationAndReconnect()
             QCOMPARE(backing.version, quint64(4));
         }
     }
+}
+
+void AuthorizationTests::relaxedPermissionsRequireInputAndResetOnRevocation()
+{
+    for (const auto revoke : {PermissionKind::ReadOutput, PermissionKind::FullTerminalInput}) {
+        FakePorts backing;
+        AuthorizationService service(backing.ports());
+        const auto current = facts();
+        auto rejected = service.change(change(PermissionKind::RelaxedPermissions, true), current);
+        QVERIFY(isError(rejected));
+        QCOMPARE(errorIfAny(rejected)->reason, AuthorizationRejection::InvalidSelection);
+        const auto input = apply(service, change(PermissionKind::FullTerminalInput, true), current);
+        QVERIFY(!input.selection.relaxedPermissions);
+        rejected = service.change(change(PermissionKind::RelaxedPermissions, true, input.revision),
+            facts(binding(), false));
+        QVERIFY(isError(rejected));
+        QCOMPARE(errorIfAny(rejected)->reason, AuthorizationRejection::SessionNotReady);
+        const auto relaxed = apply(service,
+            change(PermissionKind::RelaxedPermissions, true, input.revision), current);
+        QVERIFY(relaxed.selection.relaxedPermissions);
+        QVERIFY(!relaxed.selection.elevation && !relaxed.selection.clearTerminal);
+        QVERIFY(!service.snapshot(ClientId{"client-2"}, current).selection.relaxedPermissions);
+        QVERIFY(!service.snapshot(ClientId{"client-1"}, facts(binding("session-2")))
+            .selection.relaxedPermissions);
+        const auto revoked = apply(service, change(revoke, false, relaxed.revision), current);
+        QVERIFY(!revoked.selection.relaxedPermissions);
+        const auto restored = apply(service,
+            change(PermissionKind::FullTerminalInput, true, revoked.revision), current);
+        QVERIFY(!restored.selection.relaxedPermissions);
+    }
+}
+
+void AuthorizationTests::relaxedPermissionsRejectStaleRowsAndResetOnReconnect()
+{
+    FakePorts backing;
+    AuthorizationService service(backing.ports());
+    auto current = facts();
+    QVERIFY(service.initializeDefaults(ClientId{"client-1"}, current));
+    const auto defaults = service.snapshot(ClientId{"client-1"}, current);
+    QVERIFY(!defaults.selection.relaxedPermissions);
+    const auto relaxed = apply(service,
+        change(PermissionKind::RelaxedPermissions, true, defaults.revision), current);
+    QVERIFY(relaxed.selection.relaxedPermissions);
+    QVERIFY(!service.initializeDefaults(ClientId{"client-1"}, current));
+    QVERIFY(service.snapshot(ClientId{"client-1"}, current).selection.relaxedPermissions);
+    auto rejected = service.change(
+        change(PermissionKind::RelaxedPermissions, false, defaults.revision), current);
+    QVERIFY(isError(rejected));
+    QCOMPARE(errorIfAny(rejected)->reason, AuthorizationRejection::StaleRevision);
+    current.binding.epoch = Epoch{"reconnected"};
+    current.binding.generation = Generation{6};
+    QVERIFY(!service.snapshot(ClientId{"client-1"}, current).selection.relaxedPermissions);
+    rejected = service.change(change(PermissionKind::RelaxedPermissions, true, relaxed.revision), current);
+    QVERIFY(isError(rejected));
+    QCOMPARE(errorIfAny(rejected)->reason, AuthorizationRejection::StaleBinding);
+    // 新连接的单项授权不能沿用旧连接的宽松选择。
+    const auto rebound = apply(service, change(PermissionKind::FullTerminalInput, true,
+        relaxed.revision, current.binding), current);
+    QVERIFY(!rebound.selection.relaxedPermissions);
+    const auto selected = apply(service, change(PermissionKind::RelaxedPermissions, true,
+        rebound.revision, current.binding), current);
+    QVERIFY(selected.selection.relaxedPermissions);
+    current.binding.epoch = Epoch{"reconnected-again"};
+    current.binding.generation = Generation{7};
+    QVERIFY(service.initializeDefaults(ClientId{"client-1"}, current));
+    QVERIFY(!service.snapshot(ClientId{"client-1"}, current).selection.relaxedPermissions);
 }
 
 void AuthorizationTests::clientIdentityGenerationIsIndependentAndNeverReused()

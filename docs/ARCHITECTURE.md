@@ -42,8 +42,10 @@ NovaTerm 是基于 Qt 6、libvterm 和 QRhi 的跨平台 GPU 终端。核心目�
 - **P7**：系统资源查询，SSH 远端资源监控面板与系统信息窗口已作为内置功能落地；
 - **P8**：AI MCP（Model Context Protocol）接口，提供 Session 只读上下文与独立授权的终端操作。
   [MCP当前接口契约](architecture/stages/P8_AI_MCP_Interface/02_Current_MCP_Contract.md)记录进程内 Streamable HTTP、
-  已连接会话的读取、终端交互、任务和文件传输；会话授权仅保留读取、完整输入、
+  已连接会话的读取、终端交互、任务和文件传输；会话操作授权包括读取、完整输入、
   托管提权与清空四项，新就绪连接默认开启，用户可逐项撤销。凭据读取不向 MCP 开放，托管提权适配器尚不可用。
+  另有默认关闭的宽松权限，复用绑定/行版本授权事务，通过会话列表的 `permissions.relaxedPermissions`
+  和共享 `Server.instructions` 表达普通命令的持续授权；不改变客户端强制审批或终端输入准入规则。
   首期功能及 Windows 功能验证已完成；跨平台和完整性能验收状态见阶段文档。
 
 P9 的 XMODEM/YMODEM/ZMODEM 独立协议库已落地于 `src/filetransfer/`。

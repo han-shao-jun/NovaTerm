@@ -64,7 +64,10 @@ public:
                         NovaTerm::Ui::SessionPermissionModel::Column::Elevation)
                 && index.column()
                     != NovaTerm::Ui::SessionPermissionModel::index(
-                        NovaTerm::Ui::SessionPermissionModel::Column::ClearTerminal))
+                        NovaTerm::Ui::SessionPermissionModel::Column::ClearTerminal)
+                && index.column()
+                    != NovaTerm::Ui::SessionPermissionModel::index(
+                        NovaTerm::Ui::SessionPermissionModel::Column::RelaxedPermissions))
                 || index.data(Qt::UserRole).toBool());
         if (!available) cell.state &= ~QStyle::State_Enabled;
         const QRect indicatorArea = indicator.adjusted(-2, -2, 2, 2).intersected(cell.rect);
@@ -127,7 +130,10 @@ public:
                     NovaTerm::Ui::SessionPermissionModel::Column::Elevation)
                 || index.column()
                     == NovaTerm::Ui::SessionPermissionModel::index(
-                        NovaTerm::Ui::SessionPermissionModel::Column::ClearTerminal))
+                        NovaTerm::Ui::SessionPermissionModel::Column::ClearTerminal)
+                || index.column()
+                    == NovaTerm::Ui::SessionPermissionModel::index(
+                        NovaTerm::Ui::SessionPermissionModel::Column::RelaxedPermissions))
             && !index.data(Qt::UserRole).toBool()) {
             return false;
         }
@@ -199,7 +205,10 @@ McpSettingsDialog::McpSettingsDialog(NovaTerm::Mcp::Service* service, QWidget* p
     _sessions = new ElaTreeWidget(this);
     _sessions->setColumnCount(NovaTerm::Ui::SessionPermissionModel::ColumnCount);
     _sessions->setHeaderLabels({tr("Session"), tr("State"), tr("Read output"),
-        tr("允许执行命令"), tr("允许托管提权"), tr("允许清空终端"), tr("提权凭据"), tr("当前操作")});
+        tr("允许执行命令"), tr("允许托管提权"), tr("允许清空终端"), tr("宽松权限"), tr("提权凭据"), tr("当前操作")});
+    _sessions->headerItem()->setToolTip(NovaTerm::Ui::SessionPermissionModel::index(
+        NovaTerm::Ui::SessionPermissionModel::Column::RelaxedPermissions),
+        tr("普通命令已授权，AI 无需逐条询问；客户端强制审批仍由客户端控制。"));
     // 授权列整格均可点击，避免仅命中小尺寸复选框时才能切换状态。
     auto* permissionDelegate = new PermissionCellDelegate(_sessions);
     for (int column = 0; column < NovaTerm::Ui::SessionPermissionModel::ColumnCount; ++column) {
@@ -457,6 +466,7 @@ bool McpSettingsDialog::applyPermission(QTreeWidgetItem* root,
     const int terminalColumn = Model::index(Model::Column::TerminalInput);
     const int elevationColumn = Model::index(Model::Column::Elevation);
     const int clearColumn = Model::index(Model::Column::ClearTerminal);
+    const int relaxedColumn = Model::index(Model::Column::RelaxedPermissions);
     root->setData(0, Qt::UserRole + 4,
         QVariant::fromValue<qulonglong>(updated.revision.value()));
     // 服务端级联结果回写控件；整个过程屏蔽信号，避免在 itemChanged 栈内递归。
@@ -470,6 +480,9 @@ bool McpSettingsDialog::applyPermission(QTreeWidgetItem* root,
     root->setCheckState(clearColumn,
         updated.selection.clearTerminal ? Qt::Checked : Qt::Unchecked);
     root->setData(clearColumn, Qt::UserRole, updated.clearTerminalSelectable);
+    root->setCheckState(relaxedColumn,
+        updated.selection.relaxedPermissions ? Qt::Checked : Qt::Unchecked);
+    root->setData(relaxedColumn, Qt::UserRole, updated.relaxedPermissionsSelectable);
     return true;
 }
 
@@ -564,6 +577,7 @@ void McpSettingsDialog::refresh()
     const int terminalColumn = Model::index(Model::Column::TerminalInput);
     const int elevationColumn = Model::index(Model::Column::Elevation);
     const int clearColumn = Model::index(Model::Column::ClearTerminal);
+    const int relaxedColumn = Model::index(Model::Column::RelaxedPermissions);
     const int credentialsColumn = Model::index(Model::Column::Credentials);
     const int operationColumn = Model::index(Model::Column::Operation);
     for (const auto& row : _model->rows()) {
@@ -584,6 +598,10 @@ void McpSettingsDialog::refresh()
         item->setCheckState(terminalColumn,
             row.selection.fullTerminalInput ? Qt::Checked : Qt::Unchecked);
         item->setToolTip(terminalColumn, tr("允许所有使用此令牌的 AI 在本次连接输入文本、按键并执行命令。新建或重连后的连接默认允许，可在此取消授权。"));
+        item->setCheckState(relaxedColumn,
+            row.selection.relaxedPermissions ? Qt::Checked : Qt::Unchecked);
+        item->setData(relaxedColumn, Qt::UserRole, row.relaxedPermissionsSelectable);
+        item->setToolTip(relaxedColumn, tr("须先允许执行命令。勾选后，当前任务内的普通命令一律放行，AI 无需逐条询问；客户端强制审批仍由客户端控制。默认关闭，撤销读取或执行权限、重连后取消。不自动应答终端提示，不扩大提权、破坏性操作或上传授权。"));
         item->setCheckState(clearColumn,
             row.selection.clearTerminal ? Qt::Checked : Qt::Unchecked);
         item->setData(clearColumn, Qt::UserRole, row.clearTerminalSelectable);

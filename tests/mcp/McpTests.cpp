@@ -529,7 +529,7 @@ private slots:
         McpSettingsDialog dialog(&f.service, nullptr);
         auto* sessions = dialog.findChild<ElaTreeWidget*>();
         QVERIFY(sessions);
-        QCOMPARE(sessions->columnCount(), 8);
+        QCOMPARE(sessions->columnCount(), NovaTerm::Ui::SessionPermissionModel::ColumnCount);
         QCOMPARE(sessions->topLevelItem(0)->childCount(), 0);
         QVERIFY(!dialog.findChild<QComboBox*>("mcpClientSelector"));
         QVERIFY(!dialog.findChild<QPushButton*>("mcpManageClients"));
@@ -597,7 +597,9 @@ private slots:
         McpSettingsDialog dialog(&f.service, &owner);
         auto* tree = dialog.findChild<ElaTreeWidget*>();
         QVERIFY(tree && tree->topLevelItemCount() == 1);
-        auto* credentials = qobject_cast<QPushButton*>(tree->itemWidget(tree->topLevelItem(0), 6));
+        auto* credentials = qobject_cast<QPushButton*>(tree->itemWidget(tree->topLevelItem(0),
+            NovaTerm::Ui::SessionPermissionModel::index(
+                NovaTerm::Ui::SessionPermissionModel::Column::Credentials)));
         QVERIFY(credentials && credentials->isEnabled());
         credentials->click();
         auto* status = dialog.findChild<QLabel*>("mcpElevationCredentialStorageStatus");
@@ -934,6 +936,7 @@ private slots:
     void utf8ExpansionIsBounded();
     void settingsDialogRoundTripsTerminalPermissions();
     void settingsDialogRoundTripsClearPermission();
+    void settingsDialogPublishesRelaxedPermissions();
     void settingsDialogKeepsPendingGrantsForEveryTerminal_data();
     void settingsDialogKeepsPendingGrantsForEveryTerminal();
     void settingsDialogRejectsStaleConnectionRow_data();
@@ -2492,6 +2495,67 @@ void McpTests::settingsDialogRoundTripsTerminalPermissions()
     QCOMPARE(tree->topLevelItem(0)->checkState(4), Qt::Unchecked);
 }
 
+void McpTests::settingsDialogPublishesRelaxedPermissions()
+{
+    using Model = NovaTerm::Ui::SessionPermissionModel;
+    eApp->init();
+    Fixture f;
+    QVERIFY(f.enable());
+    QVERIFY(NovaTerm::Mcp::TestSupport::setTerminalGrant(f.service.access(), f.client,
+        f.service.directory().entries().first(), true));
+    QWidget owner;
+    QPointer<McpSettingsDialog> dialog = new McpSettingsDialog(&f.service, &owner);
+    auto* tree = dialog->findChild<ElaTreeWidget*>();
+    QVERIFY(tree && tree->topLevelItemCount() == 1);
+    int relaxedColumn = -1;
+    for (int column = 0; column < tree->columnCount(); ++column)
+        if (tree->headerItem()->text(column) == QStringLiteral("宽松权限"))
+            relaxedColumn = column;
+    QVERIFY2(relaxedColumn >= 0, "Missing per-session relaxed permission control");
+    Host host;
+    QVERIFY(host.start(f.runtime(), f.token()));
+    const auto permissions = [&host] {
+        return host.call("novaterm_list_sessions").value("data").toObject()
+            .value("sessions").toArray().first().toObject().value("permissions").toObject();
+    };
+    QCOMPARE(permissions().value("relaxedPermissions"), QJsonValue(false));
+    QStyleOptionViewItem option;
+    option.rect = QRect(0, 0, 180, 30);
+    const auto clickRelaxed = [&] {
+        QMouseEvent release(QEvent::MouseButtonRelease, QPointF(70, 15),
+            QPointF(70, 15), Qt::LeftButton, Qt::NoButton, Qt::NoModifier);
+        return tree->itemDelegateForColumn(relaxedColumn)->editorEvent(&release,
+            tree->model(), option, tree->model()->index(0, relaxedColumn));
+    };
+    QVERIFY(clickRelaxed());
+    QCOMPARE(permissions().value("relaxedPermissions"), QJsonValue(true));
+    QCoreApplication::processEvents();
+    QCOMPARE(tree->topLevelItem(0)->checkState(relaxedColumn), Qt::Checked);
+    const auto preview = qEnvironmentVariable("NOVATERM_MCP_PERMISSION_PREVIEW");
+    if (!preview.isEmpty()) {
+        const auto originalTheme = eTheme->getThemeMode();
+        const auto restoreTheme = qScopeGuard([originalTheme] { eTheme->setThemeMode(originalTheme); });
+        dialog->show();
+        for (const auto theme : {ElaThemeType::Light, ElaThemeType::Dark}) {
+            eTheme->setThemeMode(theme);
+            QTest::qWait(20);
+            QVERIFY(dialog->grab().save(preview + (theme == ElaThemeType::Dark
+                ? "-relaxed-dark.png" : "-relaxed-light.png")));
+        }
+        dialog->hide();
+    }
+    QVERIFY(clickRelaxed());
+    QCOMPARE(permissions().value("relaxedPermissions"), QJsonValue(false));
+    QCoreApplication::processEvents();
+    QVERIFY(clickRelaxed());
+    QCoreApplication::processEvents();
+    tree->topLevelItem(0)->setCheckState(Model::index(Model::Column::TerminalInput), Qt::Unchecked);
+    QCOMPARE(permissions().value("relaxedPermissions"), QJsonValue(false));
+    QCoreApplication::processEvents();
+    QCOMPARE(tree->topLevelItem(0)->checkState(relaxedColumn), Qt::Unchecked);
+    QVERIFY(!clickRelaxed());
+}
+
 void McpTests::settingsDialogRoundTripsClearPermission()
 {
     using Model = NovaTerm::Ui::SessionPermissionModel;
@@ -2937,7 +3001,9 @@ void McpTests::settingsDialogRejectsStaleConnectionRow()
     auto* oldRow = tree->topLevelItem(0);
     QCOMPARE(oldRow->checkState(3), Qt::Checked);
     QCOMPARE(oldRow->checkState(4), Qt::Checked);
-    const QPersistentModelIndex retained(tree->indexFromItem(oldRow, 7));
+    const QPersistentModelIndex retained(tree->indexFromItem(oldRow,
+        NovaTerm::Ui::SessionPermissionModel::index(
+            NovaTerm::Ui::SessionPermissionModel::Column::Operation)));
     f.session.attach(&replacement, TerminalSession::Ownership::Borrowed, static_cast<TransportKind>(kind));
     const auto current = f.service.directory().entries().first();
     QCOMPARE(current.id, original.id);

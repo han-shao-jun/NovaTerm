@@ -52,6 +52,7 @@ inline bool setKind(AccessStore& access, const QString& client,
     case PermissionKind::FullTerminalInput: value = current->selection.fullTerminalInput; break;
     case PermissionKind::ManagedElevation: value = current->selection.elevation; break;
     case PermissionKind::ClearTerminal: value = current->selection.clearTerminal; break;
+    case PermissionKind::RelaxedPermissions: value = current->selection.relaxedPermissions; break;
     }
     if (value == selected)
         return true;
@@ -74,6 +75,9 @@ inline bool applySelection(AccessStore& access, const QString& client,
     if (!setKind(access, client, entry, PermissionKind::ManagedElevation,
                  desired.elevation))
         return false;
+    if (!setKind(access, client, entry, PermissionKind::RelaxedPermissions,
+                 desired.relaxedPermissions))
+        return false;
     return setKind(access, client, entry, PermissionKind::ClearTerminal,
                    desired.clearTerminal);
 }
@@ -94,6 +98,7 @@ inline bool setGrant(AccessStore& access, const QString& client,
             desired.fullTerminalInput = current->selection.fullTerminalInput;
             desired.elevation = current->selection.elevation;
             desired.clearTerminal = current->selection.clearTerminal;
+            desired.relaxedPermissions = current->selection.relaxedPermissions;
         }
     }
     return applySelection(access, client, entry, desired);
@@ -111,6 +116,7 @@ inline bool setTerminalGrant(AccessStore& access, const QString& client,
         return false;
     PermissionSelection desired = current->selection;
     desired.fullTerminalInput = control;
+    desired.relaxedPermissions = control && desired.relaxedPermissions;
     desired.elevation = control && elevation;
     return applySelection(access, client, entry, desired);
 }
