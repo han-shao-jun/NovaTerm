@@ -21,6 +21,28 @@ ElaComboBoxStyle::~ElaComboBoxStyle()
     disconnect(eTheme, &ElaTheme::themeModeChanged, this, nullptr);
 }
 
+int ElaComboBoxStyle::styleHint(StyleHint hint, const QStyleOption* option, const QWidget* widget,
+                                QStyleHintReturn* returnData) const
+{
+    // 下拉弹层统一走 Qt 的 below/above 布局分支，使控件贴近屏幕底部时弹层
+    // 向上翻转，而不是反向弹出并压在控件上。
+    //
+    // 背景：弹层方向由 Qt QComboBox::showPopup() 依据本提示决定。
+    //   - SH_ComboBox_Popup 为 false：走 below/above 分支，空间不足时
+    //     moveBottomLeft(above) 向上翻转（正确）。
+    //   - SH_ComboBox_Popup 为 true：走菜单式弹层分支，只把弹层锚定在控件
+    //     下方并夹到屏幕内，不会翻转到上方（贴底即反向/被截断）。
+    // 该提示随平台基础 style 变化：Windows 的 windows11 / windowsvista
+    // 继承 QCommonStyle 默认返回 false，本就正常；而 Fusion 对非可编辑下拉
+    // 返回 true，导致 Linux / macOS 上贴底反向。此处显式返回 false，
+    // Windows 上为 no-op（原本就是 false），不会改变其行为；Linux / macOS
+    // 则修正为向上翻转。弹层外观仍由 CE_ShapedFrame 自绘（圆角 + 阴影），
+    // 与提示取值无关，因此不会退化为无边框的空壳。
+    if (hint == QStyle::SH_ComboBox_Popup)
+        return 0;
+    return QProxyStyle::styleHint(hint, option, widget, returnData);
+}
+
 void ElaComboBoxStyle::drawPrimitive(PrimitiveElement element, const QStyleOption* option, QPainter* painter, const QWidget* widget) const
 {
     switch (element)
